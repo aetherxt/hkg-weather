@@ -5,6 +5,7 @@ from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 from pymongo.errors import OperationFailure
 
 from app.current_weather import (
@@ -12,6 +13,7 @@ from app.current_weather import (
     CURRENT_WEATHER_URL,
     ingest_current_weather,
 )
+from app.json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 
 
 def weather_response(
@@ -104,12 +106,10 @@ def test_invalid_upstream_response_does_not_touch_database() -> None:
     client.get = AsyncMock(return_value=weather_response({"icon": [52]}))
     database, latest, archive = database_mock()
 
-    try:
+    with pytest.raises(JsonDatasetUpstreamError) as error:
         asyncio.run(ingest_current_weather(database, client))
-    except Exception as error:
-        assert type(error).__name__ == "ValidationError"
-    else:
-        raise AssertionError("Expected response validation to fail")
+
+    assert type(error.value.__cause__).__name__ == "ValidationError"
 
     latest.find_one.assert_not_awaited()
     archive.create_index.assert_not_awaited()
@@ -125,11 +125,9 @@ def test_database_error_is_not_hidden_by_ingestion_service() -> None:
     database, _, archive = database_mock()
     archive.create_index.side_effect = OperationFailure("index failed")
 
-    try:
+    with pytest.raises(JsonDatasetStorageError) as error:
         asyncio.run(ingest_current_weather(database, client))
-    except OperationFailure:
-        pass
-    else:
-        raise AssertionError("Expected MongoDB operation to fail")
+
+    assert isinstance(error.value.__cause__, OperationFailure)
 
     assert timedelta(days=3) == ARCHIVE_RETENTION

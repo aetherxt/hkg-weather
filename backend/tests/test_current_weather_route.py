@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from pydantic import SecretStr
-from pymongo.errors import OperationFailure
 
 from app import auth, main
 from app.current_weather import CurrentWeatherIngestion
 from app.database import get_ingestion_database
+from app.json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 from app.main import app
 from app.upstream import get_http_client
 
@@ -92,16 +92,10 @@ def test_route_ingests_current_weather(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_route_reports_upstream_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     secret = install_secret(monkeypatch)
     install_dependencies()
-    request = httpx.Request("GET", "https://example.test/weather")
-    upstream_error = httpx.HTTPStatusError(
-        "upstream unavailable",
-        request=request,
-        response=httpx.Response(503, request=request),
-    )
     monkeypatch.setattr(
         main,
         "ingest_current_weather",
-        AsyncMock(side_effect=upstream_error),
+        AsyncMock(side_effect=JsonDatasetUpstreamError("current_weather")),
     )
 
     try:
@@ -120,7 +114,7 @@ def test_route_reports_database_failure(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         main,
         "ingest_current_weather",
-        AsyncMock(side_effect=OperationFailure("write failed")),
+        AsyncMock(side_effect=JsonDatasetStorageError("current_weather")),
     )
 
     try:

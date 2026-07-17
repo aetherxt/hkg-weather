@@ -1,14 +1,13 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from hashlib import sha256
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo.asynchronous.database import AsyncDatabase
 
-from .storage import ensure_storage_indexes
+from .json_ingestion import JsonDatasetSpec, ingest_json_dataset
 
 CURRENT_WEATHER_DATASET = "current_weather"
 CURRENT_WEATHER_DOCUMENT_ID = "current_weather"
@@ -23,6 +22,16 @@ class CurrentWeatherPayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     update_time: datetime = Field(alias="updateTime")
+
+
+CURRENT_WEATHER_SPEC = JsonDatasetSpec(
+    dataset=CURRENT_WEATHER_DATASET,
+    document_id=CURRENT_WEATHER_DOCUMENT_ID,
+    url=CURRENT_WEATHER_URL,
+    payload_model=CurrentWeatherPayload,
+    source_updated_at=lambda payload: payload.update_time,
+    archive_retention=ARCHIVE_RETENTION,
+)
 
 
 class CurrentWeatherIngestionResponse(BaseModel):
@@ -74,60 +83,19 @@ async def ingest_current_weather(
     *,
     now: datetime | None = None,
 ) -> CurrentWeatherIngestion:
-    response = await client.get(CURRENT_WEATHER_URL)
-    response.raise_for_status()
-
-    raw_payload = response.content
-    validated_payload = CurrentWeatherPayload.model_validate_json(raw_payload)
-    fetched_at = (now or datetime.now(UTC)).astimezone(UTC)
-    content_hash = sha256(raw_payload).hexdigest()
-    content_type = response.headers.get("content-type", "application/json")
-    content_type = content_type.partition(";")[0].strip() or "application/json"
-
-    await ensure_storage_indexes(database)
-
-    latest = database["latest"]
-    archive = database["archive"]
-    previous = await latest.find_one(
-        {"_id": CURRENT_WEATHER_DOCUMENT_ID},
-        {"content_hash": 1},
+    result = await ingest_json_dataset(
+        database,
+        client,
+        CURRENT_WEATHER_SPEC,
+        now=now,
     )
-    changed = previous is None or previous.get("content_hash") != content_hash
-
-    document = {
-        "_id": CURRENT_WEATHER_DOCUMENT_ID,
-        "dataset": CURRENT_WEATHER_DATASET,
-        "source_url": CURRENT_WEATHER_URL,
-        "content_type": content_type,
-        "payload": raw_payload,
-        "fetched_at": fetched_at,
-        "source_updated_at": validated_payload.update_time,
-        "byte_size": len(raw_payload),
-        "content_hash": content_hash,
-    }
-    await latest.replace_one(
-        {"_id": CURRENT_WEATHER_DOCUMENT_ID},
-        document,
-        upsert=True,
-    )
-
-    archive_document = {
-        key: value for key, value in document.items() if key != "_id"
-    }
-    archive_document["expires_at"] = fetched_at + ARCHIVE_RETENTION
-    await archive.update_one(
-        {
-            "dataset": CURRENT_WEATHER_DATASET,
-            "content_hash": content_hash,
-        },
-        {"$setOnInsert": archive_document},
-        upsert=True,
-    )
+    if result.source_updated_at is None:
+        raise RuntimeError("current weather must have an update time")
 
     return CurrentWeatherIngestion(
-        changed=changed,
-        source_updated_at=validated_payload.update_time,
-        fetched_at=fetched_at,
+        changed=result.changed,
+        source_updated_at=result.source_updated_at,
+        fetched_at=result.fetched_at,
     )
 
 

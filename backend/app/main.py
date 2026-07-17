@@ -6,9 +6,8 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
@@ -26,6 +25,7 @@ from .database import (
     get_ingestion_database,
     get_read_database,
 )
+from .json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 from .upstream import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,40 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(JsonDatasetUpstreamError)
+async def json_dataset_upstream_error(
+    _: Request,
+    error: JsonDatasetUpstreamError,
+) -> JSONResponse:
+    logger.error(
+        "%s upstream request failed: %s",
+        error.dataset,
+        type(error.__cause__).__name__,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        content={"detail": "Upstream weather data unavailable"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.exception_handler(JsonDatasetStorageError)
+async def json_dataset_storage_error(
+    _: Request,
+    error: JsonDatasetStorageError,
+) -> JSONResponse:
+    logger.error(
+        "%s database write failed: %s",
+        error.dataset,
+        type(error.__cause__).__name__,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Weather storage unavailable"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def check_connection(name: str, database: AsyncDatabase) -> DatabaseStatus:
@@ -101,29 +135,7 @@ async def cron_current_weather(
     client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
 ) -> CurrentWeatherIngestionResponse:
     response.headers["Cache-Control"] = "no-store"
-
-    try:
-        result = await ingest_current_weather(database, client)
-    except (httpx.HTTPError, ValidationError) as error:
-        logger.error(
-            "Current-weather upstream request failed: %s",
-            type(error).__name__,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Upstream weather data unavailable",
-            headers={"Cache-Control": "no-store"},
-        ) from error
-    except PyMongoError as error:
-        logger.error(
-            "Current-weather database write failed: %s",
-            type(error).__name__,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Weather storage unavailable",
-            headers={"Cache-Control": "no-store"},
-        ) from error
+    result = await ingest_current_weather(database, client)
 
     return CurrentWeatherIngestionResponse(
         changed=result.changed,

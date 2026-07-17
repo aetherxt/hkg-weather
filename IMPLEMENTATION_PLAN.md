@@ -41,6 +41,8 @@ Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API
 - Pydantic validates backend environment variables without logging their values.
 - Python runtime dependencies are defined in `backend/requirements.txt`; pytest and Ruff use dedicated configuration files so Vercel does not treat the backend as a `uv` package project.
 - PyMongo creates separate lazy, reusable asynchronous clients for the ingestion and reader users.
+- JSON datasets use a shared, specification-driven ingestion service for upstream fetching, Pydantic validation, raw-byte hashing, latest/archive writes, retention and API error translation.
+- Each JSON source supplies only its dataset identifiers, URL, payload model, source-update-time extractor and archive-retention policy.
 - `/api/health` is the public application health endpoint.
 - `/api/health/database` checks both MongoDB users during local development and returns 404 in Vercel preview and production deployments.
 - MongoDB Atlas Network Access must permit connections from the deployed Vercel service while database authentication remains restricted by the ingestion and reader roles.
@@ -195,10 +197,12 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 
 1. Verify local access to both MongoDB users without the VPN. Complete.
 2. Add the shared ingestion foundation: validated cron secret, Bearer authentication, runtime HTTP client dependency and reproducible archive indexes. Complete.
-3. Implement `POST /api/cron/current-weather` as the first end-to-end ingestion route. Complete; live MongoDB verification remains manual.
-4. Implement `GET /api/weather/current` using the read-only MongoDB user, with a five-minute Vercel CDN lifetime and `stale-while-revalidate` caching. Complete; live MongoDB verification remains manual. Apply the dataset-specific caching rules in section 1.3 to subsequent public read routes.
-5. Test the complete current-weather pipeline locally, then deploy it.
-6. Configure cron-job.org to call the production ingestion route every 10 minutes with `Authorization: Bearer <CRON_SECRET>`.
-7. Add the remaining official HKO feeds one at a time before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds.
+3. Implement `POST /api/cron/current-weather` as the first end-to-end ingestion route. Complete and production verified.
+4. Implement `GET /api/weather/current` using the read-only MongoDB user, with a five-minute Vercel CDN lifetime and `stale-while-revalidate` caching. Complete and production verified. Apply the dataset-specific caching rules in section 1.3 to subsequent public read routes.
+5. Test the complete current-weather pipeline locally, then deploy it. Complete.
+6. Configure cron-job.org to call the production ingestion route every 10 minutes with `Authorization: Bearer <CRON_SECRET>`. Complete and verified with an automatic production run.
+7. Refactor JSON ingestion into a reusable dataset-specification service without changing the current-weather API or storage format. Complete.
+8. Add warning summary, warning information and special weather tips using the shared JSON ingestion service.
+9. Add the remaining official HKO feeds one at a time before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds.
 
 Live MongoDB connectivity and integration checks are run manually by the project owner. Automated backend tests use mocks by default and must not connect to the live database.
