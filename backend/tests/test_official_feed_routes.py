@@ -58,7 +58,7 @@ def ingestion_result() -> JsonIngestionResult:
     )
 
 
-def test_all_official_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_all_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     secret = install_dependencies(monkeypatch)
     json_result = ingestion_result()
     raw_result = RawIngestionResult(
@@ -104,6 +104,31 @@ def test_all_official_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
         "ingest_smart_lampposts",
         AsyncMock(return_value=batch),
     )
+    monkeypatch.setattr(
+        main,
+        "ingest_ocf_station_forecasts",
+        AsyncMock(return_value=batch),
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_earth_weather_cycles",
+        AsyncMock(return_value=batch),
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_earth_weather_rainfall",
+        AsyncMock(return_value=batch),
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_radar_128",
+        AsyncMock(return_value=batch[0]),
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_tropical_cyclone_tracks",
+        AsyncMock(return_value=[]),
+    )
 
     expected = {
         "/api/cron/local-forecast": "local_forecast",
@@ -113,6 +138,11 @@ def test_all_official_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
         "/api/cron/rainfall-nowcast": "gridded_rainfall_nowcast",
         "/api/cron/regional-weather": "batch_item",
         "/api/cron/smart-lampposts": "batch_item",
+        "/api/cron/ocf-station-forecasts": "batch_item",
+        "/api/cron/earth-weather-cycles": "batch_item",
+        "/api/cron/earth-weather-rainfall": "batch_item",
+        "/api/cron/radar-128": "batch_item",
+        "/api/cron/tropical-cyclones": None,
     }
 
     try:
@@ -123,8 +153,70 @@ def test_all_official_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
             body = response.json()
             assert body["ok"] is True
             if "datasets" in body:
-                assert body["datasets"][0]["dataset"] == dataset
+                if dataset is None:
+                    assert body["datasets"] == []
+                else:
+                    assert body["datasets"][0]["dataset"] == dataset
             else:
                 assert body["dataset"] == dataset
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ingest_all_route_returns_each_job_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = install_dependencies(monkeypatch)
+    result = ingestion_result()
+    status_result = DatasetIngestionStatus(
+        dataset="item",
+        changed=True,
+        source_updated_at=result.source_updated_at,
+        fetched_at=result.fetched_at,
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_current_weather",
+        AsyncMock(return_value=result),
+    )
+    for name in (
+        "ingest_local_forecast",
+        "ingest_nine_day_forecast",
+        "ingest_station_rainfall",
+        "ingest_gridded_rainfall",
+    ):
+        monkeypatch.setattr(main, name, AsyncMock(return_value=result))
+    for name in (
+        "ingest_warnings",
+        "ingest_regional_weather",
+        "ingest_smart_lampposts",
+        "ingest_ocf_station_forecasts",
+        "ingest_earth_weather_cycles",
+        "ingest_earth_weather_rainfall",
+    ):
+        monkeypatch.setattr(main, name, AsyncMock(return_value=[status_result]))
+    monkeypatch.setattr(
+        main,
+        "ingest_radar_128",
+        AsyncMock(return_value=status_result),
+    )
+    monkeypatch.setattr(
+        main,
+        "ingest_tropical_cyclone_tracks",
+        AsyncMock(return_value=[]),
+    )
+
+    try:
+        response = post("/api/cron/ingest-all", secret)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["ok"] is True
+        assert len(body["jobs"]) == 13
+        assert body["jobs"][-1] == {
+            "job": "tropical_cyclones",
+            "ok": True,
+            "datasets": [],
+            "detail": None,
+        }
     finally:
         app.dependency_overrides.clear()

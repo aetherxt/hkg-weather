@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
@@ -18,6 +18,7 @@ from .storage import ensure_storage_indexes
 class ValidatedRawPayload:
     source_updated_at: datetime | None
     archive_payload: bytes | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ async def ingest_raw_dataset(
             "byte_size": len(raw_payload),
             "content_hash": content_hash,
         }
+        document.update(validated.metadata)
         await latest.replace_one(
             {"_id": spec.document_id},
             document,

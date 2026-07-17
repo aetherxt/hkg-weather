@@ -1,0 +1,66 @@
+[
+  {
+    "stationCode": "CCH",
+    "label": "Cheung Chau"
+  },
+  {
+    "stationCode": "HKA",
+    "label": "Hong Kong International Airport"
+  },
+  {
+    "stationCode": "HKO",
+    "label": "Hong Kong Observatory"
+  },
+  {
+    "stationCode": "HKS",
+    "label": "Wong Chuk Hang"
+  },
+  {
+    "stationCode": "JKB",
+    "label": "Tseung Kwan O"
+  },
+  {
+    "stationCode": "LFS",
+    "label": "Lau Fau Shan"
+  },
+  {
+    "stationCode": "PEN",
+    "label": "Peng Chau"
+  },
+  {
+    "stationCode": "SEK",
+    "label": "Shek Kong"
+  },
+  {
+    "stationCode": "SHA",
+    "label": "Sha Tin"
+  },
+  {
+    "stationCode": "SKG",
+    "label": "Sai Kung"
+  },
+  {
+    "stationCode": "SSH",
+    "label": "Sheung Shui"
+  },
+  {
+    "stationCode": "TKL",
+    "label": "Ta Kwu Ling"
+  },
+  {
+    "stationCode": "TPO",
+    "label": "Tai Po"
+  },
+  {
+    "stationCode": "TUN",
+    "label": "Tuen Mun"
+  },
+  {
+    "stationCode": "TY1",
+    "label": "Tsing Yi"
+  },
+  {
+    "stationCode": "WGL",
+    "label": "Waglan Island"
+  }
+]

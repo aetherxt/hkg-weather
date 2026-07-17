@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
@@ -25,6 +26,20 @@ from .database import (
     get_ingestion_database,
     get_read_database,
 )
+from .internal_feeds import (
+    EARTH_WEATHER_MODELS,
+    EARTH_WEATHER_RAINFALL_MODELS,
+    EarthWeatherCycleIngestionResponse,
+    EarthWeatherRainfallIngestionResponse,
+    OcfStationIngestionResponse,
+    TropicalCycloneIngestionResponse,
+    ingest_earth_weather_cycles,
+    ingest_earth_weather_rainfall,
+    ingest_ocf_station_forecasts,
+    ingest_radar_128,
+    ingest_tropical_cyclone_tracks,
+    load_ocf_stations,
+)
 from .json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 from .official_feeds import (
     GRIDDED_RAINFALL_NOWCAST_DATASET,
@@ -33,6 +48,7 @@ from .official_feeds import (
     STATION_RAINFALL_DATASET,
     BatchIngestionResponse,
     DatasetIngestionResponse,
+    DatasetIngestionStatus,
     SmartLamppostIngestionResponse,
     ingest_gridded_rainfall,
     ingest_local_forecast,
@@ -48,6 +64,18 @@ from .upstream import get_http_client
 
 logger = logging.getLogger(__name__)
 DatabaseStatus = Literal["connected", "unavailable"]
+
+
+class IngestionJobStatus(BaseModel):
+    job: str
+    ok: bool
+    datasets: list[DatasetIngestionStatus]
+    detail: str | None = None
+
+
+class AllIngestionResponse(BaseModel):
+    ok: bool
+    jobs: list[IngestionJobStatus]
 
 
 @asynccontextmanager
@@ -275,6 +303,217 @@ async def cron_smart_lampposts(
         datasets=results,
         configured_devices=len(devices),
     )
+
+
+@app.post(
+    "/api/cron/ocf-station-forecasts",
+    response_model=OcfStationIngestionResponse,
+)
+async def cron_ocf_station_forecasts(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> OcfStationIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    stations = load_ocf_stations()
+    results = await ingest_ocf_station_forecasts(database, client, stations)
+    return OcfStationIngestionResponse(
+        datasets=results,
+        configured_stations=len(stations),
+    )
+
+
+@app.post(
+    "/api/cron/earth-weather-cycles",
+    response_model=EarthWeatherCycleIngestionResponse,
+)
+async def cron_earth_weather_cycles(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> EarthWeatherCycleIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    results = await ingest_earth_weather_cycles(database, client)
+    return EarthWeatherCycleIngestionResponse(
+        datasets=results,
+        configured_models=len(EARTH_WEATHER_MODELS),
+    )
+
+
+@app.post(
+    "/api/cron/earth-weather-rainfall",
+    response_model=EarthWeatherRainfallIngestionResponse,
+)
+async def cron_earth_weather_rainfall(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> EarthWeatherRainfallIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    results = await ingest_earth_weather_rainfall(database, client)
+    return EarthWeatherRainfallIngestionResponse(
+        datasets=results,
+        configured_models=len(EARTH_WEATHER_RAINFALL_MODELS),
+    )
+
+
+@app.post(
+    "/api/cron/radar-128",
+    response_model=DatasetIngestionResponse,
+)
+async def cron_radar_128(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> DatasetIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    result = await ingest_radar_128(database, client)
+    return DatasetIngestionResponse(**result.model_dump())
+
+
+@app.post(
+    "/api/cron/tropical-cyclones",
+    response_model=TropicalCycloneIngestionResponse,
+)
+async def cron_tropical_cyclones(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> TropicalCycloneIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    results = await ingest_tropical_cyclone_tracks(database, client)
+    return TropicalCycloneIngestionResponse(
+        datasets=results,
+        active_cyclones=len(results),
+    )
+
+
+@app.post(
+    "/api/cron/ingest-all",
+    response_model=AllIngestionResponse,
+)
+async def cron_ingest_all(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> AllIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+
+    async def current_weather_job() -> list[DatasetIngestionStatus]:
+        result = await ingest_current_weather(database, client)
+        return [ingestion_status("current_weather", result)]
+
+    async def local_forecast_job() -> list[DatasetIngestionStatus]:
+        result = await ingest_local_forecast(database, client)
+        return [ingestion_status(LOCAL_FORECAST_DATASET, result)]
+
+    async def nine_day_forecast_job() -> list[DatasetIngestionStatus]:
+        result = await ingest_nine_day_forecast(database, client)
+        return [ingestion_status(NINE_DAY_FORECAST_DATASET, result)]
+
+    async def station_rainfall_job() -> list[DatasetIngestionStatus]:
+        result = await ingest_station_rainfall(database, client)
+        return [ingestion_status(STATION_RAINFALL_DATASET, result)]
+
+    async def gridded_rainfall_job() -> list[DatasetIngestionStatus]:
+        result = await ingest_gridded_rainfall(database, client)
+        return [ingestion_status(GRIDDED_RAINFALL_NOWCAST_DATASET, result)]
+
+    async def smart_lamppost_job() -> list[DatasetIngestionStatus]:
+        return await ingest_smart_lampposts(
+            database,
+            client,
+            load_smart_lamppost_devices(),
+        )
+
+    async def ocf_station_job() -> list[DatasetIngestionStatus]:
+        return await ingest_ocf_station_forecasts(
+            database,
+            client,
+            load_ocf_stations(),
+        )
+
+    async def radar_job() -> list[DatasetIngestionStatus]:
+        return [await ingest_radar_128(database, client)]
+
+    jobs = (
+        ("current_weather", current_weather_job),
+        ("local_forecast", local_forecast_job),
+        ("nine_day_forecast", nine_day_forecast_job),
+        ("warnings", lambda: ingest_warnings(database, client)),
+        ("station_rainfall", station_rainfall_job),
+        ("gridded_rainfall_nowcast", gridded_rainfall_job),
+        ("regional_weather", lambda: ingest_regional_weather(database, client)),
+        ("smart_lampposts", smart_lamppost_job),
+        ("ocf_station_forecasts", ocf_station_job),
+        (
+            "earth_weather_cycles",
+            lambda: ingest_earth_weather_cycles(database, client),
+        ),
+        (
+            "earth_weather_rainfall",
+            lambda: ingest_earth_weather_rainfall(database, client),
+        ),
+        ("radar_128", radar_job),
+        (
+            "tropical_cyclones",
+            lambda: ingest_tropical_cyclone_tracks(database, client),
+        ),
+    )
+
+    semaphore = asyncio.Semaphore(3)
+
+    async def run_named_job(
+        job_name: str,
+        run_job: Callable[[], Awaitable[list[DatasetIngestionStatus]]],
+    ) -> IngestionJobStatus:
+        async with semaphore:
+            try:
+                datasets = await run_job()
+                return IngestionJobStatus(
+                    job=job_name,
+                    ok=True,
+                    datasets=datasets,
+                )
+            except JsonDatasetUpstreamError:
+                return IngestionJobStatus(
+                    job=job_name,
+                    ok=False,
+                    datasets=[],
+                    detail="upstream weather data unavailable",
+                )
+            except JsonDatasetStorageError:
+                return IngestionJobStatus(
+                    job=job_name,
+                    ok=False,
+                    datasets=[],
+                    detail="weather storage unavailable",
+                )
+            except Exception:
+                logger.exception("Unexpected %s batch-ingestion failure", job_name)
+                return IngestionJobStatus(
+                    job=job_name,
+                    ok=False,
+                    datasets=[],
+                    detail="unexpected ingestion failure",
+                )
+
+    job_results = list(
+        await asyncio.gather(
+            *(run_named_job(job_name, run_job) for job_name, run_job in jobs)
+        )
+    )
+
+    all_ok = all(result.ok for result in job_results)
+    if not all_ok:
+        response.status_code = status.HTTP_502_BAD_GATEWAY
+    return AllIngestionResponse(ok=all_ok, jobs=job_results)
 
 
 @app.get(

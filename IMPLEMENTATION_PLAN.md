@@ -89,6 +89,9 @@ Catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 Viewer: <https://maps.weather.gov.hk/ocf/>
 
 These are internal website feeds rather than versioned public APIs.
+Configured station codes are kept in
+`backend/app/data/ocf_stations.json`. Store all 16 full nine-day station feeds;
+exclude the shorter urban experimental station feeds.
 
 The primary rainfall-map source will be the documented numerical gridded-rainfall-nowcast feed. OCF-rendered PNGs may be used for comparison or fallback, but will not be stored as application data. Weather overlays will be generated in the browser from numerical values using Canvas or WebGL.
 
@@ -173,7 +176,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | OCF nine-day station forecasts | Raw JSON response per configured station | Save each new model time; also maintain latest per station | 3 days |
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
-| Earth Weather rainfall | Losslessly cropped surface `RF` raster using the two-hour-nowcast geographic bounds | Save supported rainfall frames for each new model cycle; also maintain latest cycle | 3 days |
+| Earth Weather rainfall | Original encoded surface `RF` PNG for the nearest future valid time, with model, cycle, lead time, valid time and raster dimensions | Maintain one latest frame per rainfall-capable model and archive each changed prediction; defer geographic cropping until the internal raster geometry is decoded reliably | 3 days |
 | Other Earth Weather fields | None by default | Fetch on demand unless later added to the storage plan | Not stored |
 | 128 km radar | Original PNG plus bounds and observation time from KML | Maintain latest and archive one image every 30 minutes | Latest plus 3-day archive |
 | Current tropical-cyclone track | Raw XML | Save each changed track while a cyclone product exists; also maintain latest | 3 days |
@@ -199,7 +202,10 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 6. Configure cron-job.org to call the production ingestion route every 10 minutes with `Authorization: Bearer <CRON_SECRET>`. Complete and verified with an automatic production run.
 7. Refactor JSON ingestion into a reusable dataset-specification service without changing the current-weather API or storage format. Complete.
 8. Add warning summary, warning information and special weather tips as latest-only datasets using the shared JSON ingestion service. Complete locally; production deployment and live ingestion verification remain.
-9. Add the remaining official HKO ingestion feeds before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds. Local forecast, nine-day forecast, station rainfall, gridded rainfall nowcast, regional temperature/wind and configurable smart-lamppost routes are complete locally; production deployment and live ingestion verification remain.
-10. Add public read routes for the newly ingested official feeds with the caching policies in section 1.3.
+9. Add the remaining official HKO ingestion feeds before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds. Complete locally for local forecast, nine-day forecast, station rainfall, gridded rainfall nowcast, regional temperature/wind and configurable smart-lamppost routes.
+10. Add OCF station forecasts from a version-controlled station list and latest-only Earth Weather model-cycle metadata. Complete locally; production deployment and live ingestion verification remain.
+11. Add the nearest future Earth Weather rainfall raster for every rainfall-capable model, the 128 km radar image/index adapter and active tropical-cyclone track ingestion. Complete locally; production deployment and live ingestion verification remain.
+12. Add one protected, manually invoked batch-ingestion route that runs every configured source with bounded concurrency and reports each source independently. Complete locally; do not schedule it as a recurring cron job.
+13. Add public read routes for the ingested feeds with the caching policies in section 1.3.
 
 Live MongoDB connectivity and integration checks are run manually by the project owner. Automated backend tests use mocks by default and must not connect to the live database.

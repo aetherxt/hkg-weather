@@ -75,6 +75,13 @@ required. The current selection is:
 - `AB3301:01` — Tsim Sha Tsui / Jordan;
 - `DF3644:01` — Kowloon Bay / Choi Hung.
 
+OCF station selections are stored in `backend/app/data/ocf_stations.json`.
+All 16 full nine-day OCF stations are selected. Urban experimental stations
+with shorter three-day forecasts remain excluded. The OCF ingestion route
+fetches at most four stations concurrently. OCF and Earth Weather are internal
+website feeds rather than versioned public APIs, so their cron routes validate
+every response before replacing stored data.
+
 ## Current-weather ingestion
 
 `POST /api/cron/current-weather` authenticates with
@@ -124,7 +131,7 @@ Successful responses are cached by Vercel for five minutes with background
 revalidation. Browsers revalidate their own copies, and error responses are
 never cached.
 
-## Official HKO ingestion routes
+## HKO ingestion routes
 
 All ingestion routes use `POST`, require
 `Authorization: Bearer <CRON_SECRET>`, and return `Cache-Control: no-store`.
@@ -139,6 +146,33 @@ All ingestion routes use `POST`, require
 | `/api/cron/rainfall-nowcast` | Complete latest CSV and first two forecast periods in one archive slot per 30 minutes |
 | `/api/cron/regional-weather` | Regional temperature and wind/gust CSVs, latest plus 3-day archive |
 | `/api/cron/smart-lampposts` | One latest and archived document per configured device |
+| `/api/cron/ocf-station-forecasts` | One latest and 3-day archived OCF forecast per configured station |
+| `/api/cron/earth-weather-cycles` | Latest cycle metadata for each configured Earth Weather model |
+| `/api/cron/earth-weather-rainfall` | Nearest future surface-rainfall raster for each rainfall-capable Earth Weather model, latest plus 3-day archive |
+| `/api/cron/radar-128` | Latest 128 km radar PNG and geographic bounds, with one archive entry per 30-minute slot |
+| `/api/cron/tropical-cyclones` | Current official tropical-cyclone track XML per active cyclone, latest plus 3-day archive |
+| `/api/cron/ingest-all` | Manually run every configured ingestion source and return a per-job result; do not schedule this route as a cron job |
+
+The internal-feed routes use the same Bearer secret as the official-feed
+routes. OCF station data is stored under IDs such as
+`ocf_station_forecast:HKO`; Earth Weather cycle metadata is stored under IDs
+such as `earth_weather_model_cycle:ec`, and rainfall rasters use IDs such as
+`earth_weather_rainfall:ec`. A tropical-cyclone request is successful with an
+empty `datasets` array and `activeCyclones: 0` when HKO reports no active
+cyclone.
+
+After deployment, run all sources once with:
+
+```bash
+curl --fail-with-body --request POST \
+  --header "Authorization: Bearer $CRON_SECRET" \
+  https://hkgweather.vercel.app/api/cron/ingest-all
+```
+
+The batch request runs at most three source groups concurrently and returns
+HTTP 502 if any group fails. Its response still includes every group so one
+failure does not hide the remaining test results. Continue scheduling the
+individual source routes in cron-job.org; the batch route is for manual tests.
 
 The smart-lamppost route validates and loads the JSON configuration when it is
 called. Changes take effect after the updated application is deployed.

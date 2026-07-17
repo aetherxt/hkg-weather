@@ -46,6 +46,7 @@ def test_raw_ingestion_stores_latest_and_interval_archive() -> None:
         validate=lambda _: ValidatedRawPayload(
             source_updated_at=source_updated_at,
             archive_payload=archive_payload,
+            metadata={"valid_at": source_updated_at, "lead_minutes": 30},
         ),
         default_content_type="text/csv",
         archive_retention=timedelta(days=3),
@@ -58,6 +59,8 @@ def test_raw_ingestion_stores_latest_and_interval_archive() -> None:
     latest_document = latest.replace_one.await_args.args[1]
     assert latest_document["payload"] == raw_payload
     assert latest_document["content_type"] == "text/csv"
+    assert latest_document["valid_at"] == source_updated_at
+    assert latest_document["lead_minutes"] == 30
 
     archive_filter = archive.update_one.await_args.args[0]
     archive_document = archive.update_one.await_args.args[1]["$setOnInsert"]
@@ -66,4 +69,5 @@ def test_raw_ingestion_stores_latest_and_interval_archive() -> None:
         "archive_slot": datetime(2026, 7, 17, 10, 30, tzinfo=UTC),
     }
     assert archive_document["payload"] == archive_payload
+    assert archive_document["valid_at"] == source_updated_at
     assert archive_document["archive_slot"] == datetime(2026, 7, 17, 10, 30, tzinfo=UTC)

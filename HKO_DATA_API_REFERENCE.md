@@ -123,6 +123,12 @@ data = response.json()
 | 1-minute temperature | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_1min_temperature.csv` |
 | 10-minute wind and gust | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_10min_wind.csv` |
 | OCF nine-day station forecast | JSON in a file named `.xml` | `https://maps.weather.gov.hk/ocf/dat/{stationCode}.xml` |
+| Earth Weather model cycle | JSON | `https://maps.weather.gov.hk/wxviewer/data/current_{model}.json` |
+| Earth Weather model raster | Encoded PNG | `https://maps.weather.gov.hk/wxviewer/data/weather/{model}/{baseTime}/{filename}.png` |
+| 128 km radar frame index | KML | `https://www.hko.gov.hk/wxinfo/radars/R4_GIS_rad_128/R4_GIS_server_Radar_128.kml` |
+| 128 km radar image | PNG | Relative `href` from the radar KML index |
+| Active tropical-cyclone index | JavaScript/text | `https://www.hko.gov.hk/wxinfo/currwx/tc_gis_list.js` |
+| Current tropical-cyclone track | KML-formatted XML | `https://www.hko.gov.hk/wxinfo/currwx/tc_gis_track_15a_e_{stormId}.xml` |
 
 ## 4. Rainfall in the past hour
 
@@ -1114,6 +1120,11 @@ const hourlyTemperature = forecast.HourlyWeatherForecast.map(hour => ({
 
 Station codes are internal OCF identifiers. Obtain the required code from a successfully selected location in the current OCF application and keep the mapping configurable rather than assuming it is permanent.
 
+The application currently collects the 16 full nine-day station feeds:
+`CCH`, `HKA`, `HKO`, `HKS`, `JKB`, `LFS`, `PEN`, `SEK`, `SHA`, `SKG`, `SSH`,
+`TKL`, `TPO`, `TUN`, `TY1` and `WGL`. Shorter urban experimental feeds are
+kept separate and are not collected.
+
 #### 15.2.3 Return format
 
 The station response contains both hourly and daily forecast fields:
@@ -1175,7 +1186,77 @@ Example fragment:
 
 Store `ForecastChanceOfRain` as a category. Do not convert `<10%` to zero or `>90%` to 100 without retaining the original value. Treat `ForecastHour` as Hong Kong local time in `YYYYMMDDHH` format and do not interpret it as UTC.
 
-## 16. Recommended application mapping
+## 16. Radar and tropical-cyclone internal feeds
+
+These resources are used by HKO website applications and are not documented as
+versioned public APIs. Fetch them through a monitored server-side adapter and
+validate the media type and body before accepting a response.
+
+### 16.1 128 km radar index and image
+
+Request the frame index:
+
+```http
+GET https://www.hko.gov.hk/wxinfo/radars/R4_GIS_rad_128/R4_GIS_server_Radar_128.kml
+```
+
+The response is KML containing multiple `GroundOverlay` elements. Each overlay
+contains an image filename and the geographic extent used to place it on a map:
+
+```xml
+<GroundOverlay>
+  <name>Case Time 2026-07-17 22:24 HKT</name>
+  <Icon><href>20260717222401_rad_128.png</href></Icon>
+  <LatLonBox>
+    <north>23.44966</north>
+    <south>21.14752</south>
+    <east>115.41589</east>
+    <west>112.92745</west>
+  </LatLonBox>
+</GroundOverlay>
+```
+
+Resolve `href` relative to the KML URL. The resolved response is a PNG radar
+overlay. Select the greatest `YYYYMMDDHHmmss` timestamp in a valid radar
+filename rather than assuming the final XML element is the newest. The
+filename and `Case Time ... HKT` label use Hong Kong time.
+
+Store the original PNG together with its observation time and all four bounds.
+Those bounds allow a web map to position the raster as a geographic image
+source while retaining zoom and pan support.
+
+### 16.2 Current tropical-cyclone track
+
+First request HKO's active-cyclone list:
+
+```http
+GET https://www.hko.gov.hk/wxinfo/currwx/tc_gis_list.js
+```
+
+When there is no active product, the body is:
+
+```text
+NIL
+```
+
+The current GIS page expects an active response to define a `tc` array whose
+entries contain a storm identifier, English name and Chinese name separated by
+commas. For every validated identifier, request:
+
+```text
+https://www.hko.gov.hk/wxinfo/currwx/tc_gis_track_15a_e_{stormId}.xml
+```
+
+Despite the `.xml` suffix, the track response is KML. It contains geographic
+track coordinates and associated feature descriptions used by the HKO GIS
+viewer. Validate the KML root and require at least one non-empty `coordinates`
+element. Treat `NIL` as a successful inactive state, not an upstream error.
+
+The page also uses separate cone, satellite and radar KML products. They are
+not part of the current storage plan and should not be inferred from the track
+XML alone.
+
+## 17. Recommended application mapping
 
 | Application feature | Preferred feed |
 |---|---|
@@ -1192,9 +1273,11 @@ Store `ForecastChanceOfRain` as a category. Do not convert `<10%` to zero or `>9
 | Experimental hyperlocal observations | Smart-lamppost API |
 | Nine-day station temperature and daily chance of rain | OCF nine-day station forecast, with internal-interface warning |
 | Model map comparison | Earth Weather raster assets, with internal-interface warning |
+| Radar image comparison | 128 km radar KML index and referenced PNG |
+| Active storm path | Current tropical-cyclone track KML, with internal-interface warning |
 | Raw ECMWF/AIFS numerical modelling | ECMWF official open data rather than HKO viewer PNGs |
 
-## 17. Implementation recommendations
+## 18. Implementation recommendations
 
 1. **Call HKO from a server-side adapter where possible.** This permits caching, schema validation, timeouts and resilience if browser CORS rules change.
 2. **Cache according to the update interval.** Do not request a 10-minute feed every few seconds.
@@ -1205,7 +1288,7 @@ Store `ForecastChanceOfRain` as a category. Do not convert `<10%` to zero or `>9
 7. **Monitor undocumented viewer integrations.** Add response-content checks so an HTML error page is not accepted as a PNG, KML, JSON or OCF `.xml` response.
 8. **Review data terms and attribution.** Model-provider licences differ, particularly when redistributing model output.
 
-## 18. Sources
+## 19. Sources
 
 - HKO Open Data catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 - HKO Open Data API documentation: <https://data.weather.gov.hk/weatherAPI/doc/HKO_Open_Data_API_Documentation.pdf>
@@ -1217,4 +1300,6 @@ Store `ForecastChanceOfRain` as a category. Do not convert `<10%` to zero or `>9
 - HKO Earth Weather notes: <https://maps.weather.gov.hk/wxviewer/notes.html>
 - HKO Automatic Regional Weather Forecast viewer: <https://maps.weather.gov.hk/ocf/>
 - HKO Automatic Regional Weather Forecast product notes: <https://maps.weather.gov.hk/ocf/help_e.html>
+- HKO regional weather and radar portal: <https://www.hko.gov.hk/en/wxinfo/awsgis/regional_portal.html>
+- HKO tropical-cyclone track GIS viewer: <https://www.hko.gov.hk/en/wxinfo/currwx/tc_gis.htm>
 - ECMWF open-data documentation: <https://confluence.ecmwf.int/spaces/DAC/pages/272310539/ECMWF+open+data%3A+real-time+forecasts+from+IFS+and+AIFS>
