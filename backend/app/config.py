@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     mongodb_ingest_uri: SecretStr
     mongodb_read_uri: SecretStr
     mongodb_database: str = "hkg-weather-live"
+    cron_secret: SecretStr
 
     model_config = SettingsConfigDict(
         env_file=(
@@ -34,6 +35,13 @@ class Settings(BaseSettings):
     def validate_database_name(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("must not be empty")
+        return value
+
+    @field_validator("cron_secret")
+    @classmethod
+    def validate_cron_secret(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value()) < 32:
+            raise ValueError("must contain at least 32 characters")
         return value
 
 

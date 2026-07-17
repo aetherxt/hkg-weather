@@ -3,17 +3,30 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, Response, status
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
+from .auth import require_cron_secret
+from .current_weather import (
+    CurrentWeatherIngestionResponse,
+    CurrentWeatherNotFoundError,
+    CurrentWeatherReadResponse,
+    StoredCurrentWeatherError,
+    ingest_current_weather,
+    read_current_weather,
+)
 from .database import (
     close_database_clients,
     get_ingestion_database,
     get_read_database,
 )
+from .upstream import get_http_client
 
 logger = logging.getLogger(__name__)
 DatabaseStatus = Literal["connected", "unavailable"]
@@ -75,3 +88,86 @@ async def database_health() -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.post(
+    "/api/cron/current-weather",
+    response_model=CurrentWeatherIngestionResponse,
+)
+async def cron_current_weather(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> CurrentWeatherIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+
+    try:
+        result = await ingest_current_weather(database, client)
+    except (httpx.HTTPError, ValidationError) as error:
+        logger.error(
+            "Current-weather upstream request failed: %s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Upstream weather data unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+    except PyMongoError as error:
+        logger.error(
+            "Current-weather database write failed: %s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Weather storage unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+
+    return CurrentWeatherIngestionResponse(
+        changed=result.changed,
+        source_updated_at=result.source_updated_at,
+        fetched_at=result.fetched_at,
+    )
+
+
+@app.get(
+    "/api/weather/current",
+    response_model=CurrentWeatherReadResponse,
+)
+async def get_current_weather(
+    response: Response,
+    database: Annotated[AsyncDatabase, Depends(get_read_database)],
+) -> CurrentWeatherReadResponse:
+    try:
+        current_weather = await read_current_weather(database)
+    except CurrentWeatherNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Current weather not found",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+    except StoredCurrentWeatherError as error:
+        logger.error("Stored current-weather data is invalid")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Weather data unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+    except PyMongoError as error:
+        logger.error(
+            "Current-weather database read failed: %s",
+            type(error).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Weather storage unavailable",
+            headers={"Cache-Control": "no-store"},
+        ) from error
+
+    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    response.headers["Vercel-CDN-Cache-Control"] = (
+        "max-age=300, stale-while-revalidate=600"
+    )
+    return current_weather

@@ -45,6 +45,16 @@ Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API
 - `/api/health/database` checks both MongoDB users during local development and returns 404 in Vercel preview and production deployments.
 - MongoDB Atlas Network Access must permit connections from the deployed Vercel service while database authentication remains restricted by the ingestion and reader roles.
 
+### 1.3 API response caching
+
+- Public `GET /api/weather/*` responses use Vercel CDN caching to avoid querying MongoDB once per client.
+- Fast-changing observations, warning information and latest-frame indexes use a 30–60 second CDN lifetime.
+- Current weather uses a five-minute CDN lifetime; local and nine-day forecasts use a ten-minute lifetime.
+- Timestamped map frames use content-specific URLs and long-lived immutable caching.
+- Public responses use `stale-while-revalidate` so the CDN can serve a cached response while refreshing it from FastAPI and MongoDB.
+- Authenticated `POST /api/cron/*`, health, error and user-specific responses are never cached.
+- Public cacheable requests must not include authorization headers or cookies, and non-streaming responses must remain below Vercel's 10 MB CDN response limit.
+
 ## 2. Data sources
 
 ### 2.1 Documented HKO open data
@@ -180,3 +190,15 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - The three-day radar archive is approximately 10 MB.
 - Rainfall forecast, radar, metadata and indexes are expected to use approximately 215–225 MB before the other stored datasets are included.
 - Keep total Atlas storage below approximately 400 MB to leave headroom under the 512 MB free-cluster limit.
+
+## 4. Next implementation order
+
+1. Verify local access to both MongoDB users without the VPN. Complete.
+2. Add the shared ingestion foundation: validated cron secret, Bearer authentication, runtime HTTP client dependency and reproducible archive indexes. Complete.
+3. Implement `POST /api/cron/current-weather` as the first end-to-end ingestion route. Complete; live MongoDB verification remains manual.
+4. Implement `GET /api/weather/current` using the read-only MongoDB user, with a five-minute Vercel CDN lifetime and `stale-while-revalidate` caching. Complete; live MongoDB verification remains manual. Apply the dataset-specific caching rules in section 1.3 to subsequent public read routes.
+5. Test the complete current-weather pipeline locally, then deploy it.
+6. Configure cron-job.org to call the production ingestion route every 10 minutes with `Authorization: Bearer <CRON_SECRET>`.
+7. Add the remaining official HKO feeds one at a time before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds.
+
+Live MongoDB connectivity and integration checks are run manually by the project owner. Automated backend tests use mocks by default and must not connect to the live database.
