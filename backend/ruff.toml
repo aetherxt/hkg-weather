@@ -1,0 +1,6 @@
+target-version = "py312"
+line-length = 88
+exclude = [".vercel"]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

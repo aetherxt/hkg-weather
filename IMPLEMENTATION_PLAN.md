@@ -39,6 +39,7 @@ Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API
 - MongoDB and cron secrets must never use the `NEXT_PUBLIC_` prefix.
 - Local MongoDB variables may be stored in the repository-level `.env.local` or the existing `web/.env.local`; both are ignored by Git.
 - Pydantic validates backend environment variables without logging their values.
+- Python runtime dependencies are defined in `backend/requirements.txt`; pytest and Ruff use dedicated configuration files so Vercel does not treat the backend as a `uv` package project.
 - PyMongo creates separate lazy, reusable asynchronous clients for the ingestion and reader users.
 - `/api/health` is the public application health endpoint.
 - `/api/health/database` checks both MongoDB users during local development and returns 404 in Vercel preview and production deployments.
