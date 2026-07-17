@@ -1,6 +1,6 @@
-# Better Weather Web Application — Planning Document
+# HKG Weather Web Application — Planning Document
 
-Last updated: 16 July 2026  
+Last updated: 17 July 2026
 Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API_REFERENCE.md)
 
 ## 1. Stack
@@ -8,15 +8,41 @@ Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API
 | Area | Choice |
 |---|---|
 | Web framework | Next.js App Router with TypeScript |
-| Hosting | Vercel |
-| Backend | Next.js Route Handlers using the Node.js runtime |
+| Hosting | One Vercel Services project containing the Next.js and FastAPI services |
+| Backend | Python FastAPI service |
+| Backend runtime | Vercel Python runtime, compatible with Python 3.12 and later |
 | Database | MongoDB Atlas |
-| Database client | Official MongoDB Node.js driver |
+| Database client | Official PyMongo asynchronous driver |
 | Map | MapLibre GL JS |
 | Weather-layer rendering | Browser-side Canvas and WebGL from numerical grid data |
-| Validation | Zod |
-| Scheduled ingestion | cron-job.org calling a protected Vercel Route Handler |
+| Validation | Pydantic |
+| Scheduled ingestion | cron-job.org calling protected `/api/cron/*` FastAPI endpoints |
 | CDN and response caching | Vercel CDN |
+
+### 1.1 Application and deployment structure
+
+- The repository root is the Vercel project root and contains `vercel.json`.
+- The Vercel framework preset is `Services`.
+- `web/` is the Next.js frontend service.
+- `backend/` is the FastAPI backend service, with `app.main:app` as its entry point.
+- `/api/*` requests are routed to FastAPI; all other requests are routed to Next.js.
+- Both services deploy and roll back together on the same domain.
+- Browser requests to FastAPI use same-origin `/api/*` URLs and do not require CORS.
+- The services run together locally with `npx vercel dev -L` from the repository root.
+- FastAPI is request-driven on Vercel; no scheduler or permanent worker runs inside the service.
+- cron-job.org triggers ingestion by sending authenticated HTTP requests to the deployed `/api/cron/*` routes.
+
+### 1.2 Backend and environment configuration
+
+- Production and preview secrets are stored as Vercel project environment variables.
+- Required variables are `MONGODB_INGEST_URI`, `MONGODB_READ_URI`, `MONGODB_DATABASE` and `CRON_SECRET`.
+- MongoDB and cron secrets must never use the `NEXT_PUBLIC_` prefix.
+- Local MongoDB variables may be stored in the repository-level `.env.local` or the existing `web/.env.local`; both are ignored by Git.
+- Pydantic validates backend environment variables without logging their values.
+- PyMongo creates separate lazy, reusable asynchronous clients for the ingestion and reader users.
+- `/api/health` is the public application health endpoint.
+- `/api/health/database` checks both MongoDB users during local development and returns 404 in Vercel preview and production deployments.
+- MongoDB Atlas Network Access must permit connections from the deployed Vercel service while database authentication remains restricted by the ingestion and reader roles.
 
 ## 2. Data sources
 
@@ -92,11 +118,24 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 
 ## 3. Storage
 
-### 3.1 Common rules
+### 3.1 MongoDB Atlas layout
+
+- Cluster: `hkg-weather`
+- Live database: `hkg-weather-live`
+  - Initial collection: `latest`
+- Test database: `hkg-weather-test`
+  - Initial collection: `test`
+- Database users:
+  - ingestion user: `readWrite` on `hkg-weather-live`, used only by protected ingestion and cron routes;
+  - reader user: `read` on `hkg-weather-live`, used by application read routes and ordinary local development;
+  - optional test user: `readWrite` on `hkg-weather-test`, used by automated integration tests and destructive database tests.
+- Application setup code will create the remaining collections and indexes so their definitions are reproducible.
+
+### 3.2 Common rules
 
 - Store upstream JSON, CSV, XML and image payloads as BSON binary data with their original content type.
 - Do not Base64-encode binary payloads.
-- Preserve `fetchedAt`, upstream update or observation time, forecast valid time, forecast lead time, source URL, byte size and content hash.
+- Preserve `fetched_at`, `source_updated_at` or observation time, `valid_at`, `lead_minutes`, `source_url`, `byte_size`, `content_hash` and `expires_at` where applicable.
 - Keep one replaceable latest document for products needed by the live page.
 - Insert an archive document only when its upstream timestamp or content hash changes.
 - No archived API record or derived verification record is retained for more than three days.
@@ -104,7 +143,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - Do not store generated map tiles, browser-rendered weather layers or OCF-rendered fallback PNGs.
 - Retain static station, device and location lookup data as latest-only documents and replace them when their content changes.
 
-### 3.2 Dataset storage policy
+### 3.3 Dataset storage policy
 
 | Data | Stored representation | Capture policy | Retention |
 |---|---|---|---|
@@ -131,7 +170,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Tropical-cyclone best track | Raw official data used when available for comparison | Fetch on demand or maintain the latest published file | Latest only |
 | Forecast-verification results | Compact BSON containing forecast identity, observation identity and calculated errors | Calculate after the matching observation arrives | 3 days |
 
-### 3.3 Rainfall archive size
+### 3.4 Rainfall archive size
 
 - Each 30-minute archive snapshot keeps the first two forecast grids, covering the forecast available for the following 60 minutes.
 - One 128 km radar PNG is archived at the same 30-minute cadence for visual comparison.
