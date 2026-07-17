@@ -177,6 +177,38 @@ individual source routes in cron-job.org; the batch route is for manual tests.
 The smart-lamppost route validates and loads the JSON configuration when it is
 called. Changes take effect after the updated application is deployed.
 
+### Bulk-configure cron-job.org
+
+Use the included configurator instead of editing every cron job manually. It
+selects only jobs whose URL starts with
+`https://hkgweather.vercel.app/api/cron/`, always excludes `ingest-all`, merges
+the application Bearer header with existing custom headers, changes the method
+to `POST`, and enables saved responses. Schedules, enabled states and
+notifications are not changed.
+
+First create an API key in cron-job.org. Run a dry-run from the repository root:
+
+```bash
+backend/.venv/bin/python backend/scripts/configure_cron_jobs.py
+```
+
+The script reads `CRON_SECRET` from the environment, `.env.local`, or
+`web/.env.local`, and privately prompts for the cron-job.org API key. Review the
+displayed job list, then apply it and immediately run every matched endpoint:
+
+```bash
+backend/.venv/bin/python backend/scripts/configure_cron_jobs.py --apply
+```
+
+The test calls are sent directly to each configured URL with `POST` and the
+Bearer secret, then reported as PASS/FAIL with the HTTP status and a short
+response summary. They run sequentially to avoid overloading the backend. To
+update cron-job.org without running the endpoints, add `--no-run`.
+
+Neither secret is printed or saved by the script. The optional
+`CRON_JOB_ORG_API_KEY` environment variable can supply the API key for
+non-interactive use; do not commit it.
+
 Run the isolated backend checks with:
 
 ```bash
