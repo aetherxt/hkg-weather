@@ -26,6 +26,24 @@ from .database import (
     get_read_database,
 )
 from .json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
+from .official_feeds import (
+    GRIDDED_RAINFALL_NOWCAST_DATASET,
+    LOCAL_FORECAST_DATASET,
+    NINE_DAY_FORECAST_DATASET,
+    STATION_RAINFALL_DATASET,
+    BatchIngestionResponse,
+    DatasetIngestionResponse,
+    SmartLamppostIngestionResponse,
+    ingest_gridded_rainfall,
+    ingest_local_forecast,
+    ingest_nine_day_forecast,
+    ingest_regional_weather,
+    ingest_smart_lampposts,
+    ingest_station_rainfall,
+    ingest_warnings,
+    ingestion_status,
+    load_smart_lamppost_devices,
+)
 from .upstream import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -141,6 +159,121 @@ async def cron_current_weather(
         changed=result.changed,
         source_updated_at=result.source_updated_at,
         fetched_at=result.fetched_at,
+    )
+
+
+@app.post(
+    "/api/cron/local-forecast",
+    response_model=DatasetIngestionResponse,
+)
+async def cron_local_forecast(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> DatasetIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    result = await ingest_local_forecast(database, client)
+    status_result = ingestion_status(LOCAL_FORECAST_DATASET, result)
+    return DatasetIngestionResponse(**status_result.model_dump())
+
+
+@app.post(
+    "/api/cron/nine-day-forecast",
+    response_model=DatasetIngestionResponse,
+)
+async def cron_nine_day_forecast(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> DatasetIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    result = await ingest_nine_day_forecast(database, client)
+    status_result = ingestion_status(NINE_DAY_FORECAST_DATASET, result)
+    return DatasetIngestionResponse(**status_result.model_dump())
+
+
+@app.post(
+    "/api/cron/warnings",
+    response_model=BatchIngestionResponse,
+)
+async def cron_warnings(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> BatchIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return BatchIngestionResponse(
+        datasets=await ingest_warnings(database, client),
+    )
+
+
+@app.post(
+    "/api/cron/station-rainfall",
+    response_model=DatasetIngestionResponse,
+)
+async def cron_station_rainfall(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> DatasetIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    result = await ingest_station_rainfall(database, client)
+    status_result = ingestion_status(STATION_RAINFALL_DATASET, result)
+    return DatasetIngestionResponse(**status_result.model_dump())
+
+
+@app.post(
+    "/api/cron/rainfall-nowcast",
+    response_model=DatasetIngestionResponse,
+)
+async def cron_rainfall_nowcast(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> DatasetIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    result = await ingest_gridded_rainfall(database, client)
+    status_result = ingestion_status(GRIDDED_RAINFALL_NOWCAST_DATASET, result)
+    return DatasetIngestionResponse(**status_result.model_dump())
+
+
+@app.post(
+    "/api/cron/regional-weather",
+    response_model=BatchIngestionResponse,
+)
+async def cron_regional_weather(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> BatchIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return BatchIngestionResponse(
+        datasets=await ingest_regional_weather(database, client),
+    )
+
+
+@app.post(
+    "/api/cron/smart-lampposts",
+    response_model=SmartLamppostIngestionResponse,
+)
+async def cron_smart_lampposts(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> SmartLamppostIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    devices = load_smart_lamppost_devices()
+    results = await ingest_smart_lampposts(database, client, devices)
+    return SmartLamppostIngestionResponse(
+        datasets=results,
+        configured_devices=len(devices),
     )
 
 

@@ -23,4 +23,10 @@ def test_storage_indexes_are_created() -> None:
             name="archive_expiry_ttl",
             expireAfterSeconds=0,
         ),
+        call(
+            [("dataset", 1), ("archive_slot", 1)],
+            name="archive_dataset_slot_unique",
+            unique=True,
+            partialFilterExpression={"archive_slot": {"$exists": True}},
+        ),
     ]

@@ -1,6 +1,6 @@
 # Hong Kong Observatory Data and Model Feed Reference
 
-Last reviewed: 16 July 2026  
+Last reviewed: 17 July 2026
 Primary catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 
 ## 1. Purpose and scope
@@ -15,14 +15,12 @@ This document describes how to call and interpret the following Hong Kong Observ
 - weather warning information;
 - weather warning summary;
 - special weather tips;
-- lightning count over Hong Kong territory;
 - smart-lamppost meteorological observations;
 - regional weather products:
   - latest 1-minute mean air temperature;
   - latest 10-minute mean wind direction, wind speed and maximum gust;
 - internal Automatic Regional Weather Forecast (OCF) products:
   - nine-day station forecast, including hourly temperature and daily probability of precipitation;
-  - one-hour lightning nowcast;
 - prediction-model products displayed by HKO Earth Weather:
   - ECMWF;
   - ECMWF-AIFS;
@@ -121,12 +119,10 @@ data = response.json()
 | Warning information | JSON | `https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warningInfo&lang=en` |
 | Warning summary | JSON | `https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=en` |
 | Special weather tips | JSON | `https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=swt&lang=en` |
-| Past-hour lightning count | JSON or CSV | `https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=LHL&lang=en&rformat=json` |
 | Smart lamppost | JSON | `https://data.weather.gov.hk/weatherAPI/smart-lamppost/smart-lamppost.php?pi={lamppost}&di={device}` |
 | 1-minute temperature | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_1min_temperature.csv` |
 | 10-minute wind and gust | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_10min_wind.csv` |
 | OCF nine-day station forecast | JSON in a file named `.xml` | `https://maps.weather.gov.hk/ocf/dat/{stationCode}.xml` |
-| OCF one-hour lightning nowcast | Text index, JSON and PNG | `https://maps.weather.gov.hk/ocf/dat/nc/nc.ln.index.2.txt` |
 
 ## 4. Rainfall in the past hour
 
@@ -589,75 +585,9 @@ When there are no active tips:
 {"swt": []}
 ```
 
-## 12. Lightning count over Hong Kong territory
+## 12. Smart-lamppost meteorological data
 
-### 12.1 Calling method
-
-JSON:
-
-```http
-GET https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=LHL&lang=en&rformat=json
-```
-
-CSV:
-
-```http
-GET https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=LHL&lang=en&rformat=csv
-```
-
-Parameters:
-
-| Parameter | Required | Values |
-|---|---:|---|
-| `dataType` | Yes | `LHL` |
-| `lang` | No | `en`, `tc`, `sc` |
-| `rformat` | No | `json`, `csv`; default `csv` |
-
-The counts are provisional and normally updated hourly.
-
-### 12.2 JSON return format
-
-```ts
-interface LightningCountResponse {
-  fields: ["DateTime", "Type", "Region", "lightning count"];
-  data: Array<[string, string, string, string]>;
-}
-```
-
-Example:
-
-```json
-{
-  "fields": ["DateTime", "Type", "Region", "lightning count"],
-  "data": [
-    [
-      "202607161500-202607161559",
-      "Cloud-to-ground",
-      "New Territories West",
-      "0"
-    ],
-    [
-      "202607161500-202607161559",
-      "Cloud-to-cloud",
-      "Hong Kong territory",
-      "0"
-    ]
-  ]
-}
-```
-
-The fourth array item is a string and should be explicitly converted after validation.
-
-### 12.3 CSV return format
-
-```csv
-DateTime,Type,Region,lightning count
-202607161500-202607161559,Cloud-to-ground,New Territories West,0
-```
-
-## 13. Smart-lamppost meteorological data
-
-### 13.1 Supporting lookup datasets
+### 12.1 Supporting lookup datasets
 
 Before calling the observation endpoint, retrieve the location, device-type and element databases:
 
@@ -669,7 +599,7 @@ https://www.hko.gov.hk/common/hko_data/smart-lamppost/files/smart_lamppost_met_d
 
 Use the location database to obtain `LP_NUM` and the type/element databases to determine which device IDs and elements are available.
 
-### 13.2 Calling method
+### 12.2 Calling method
 
 ```http
 GET https://data.weather.gov.hk/weatherAPI/smart-lamppost/smart-lamppost.php?pi=GF3637&di=01
@@ -684,7 +614,7 @@ Parameters:
 
 The response contains the latest processed 10-minute observation for one lamppost/device pair.
 
-### 13.3 Return format
+### 12.3 Return format
 
 ```ts
 interface SmartLamppostResponse {
@@ -744,9 +674,9 @@ Error examples:
 
 All measurement values are strings. `////` indicates that the corresponding element failed quality control.
 
-## 14. Regional weather products
+## 13. Regional weather products
 
-### 14.1 Latest 1-minute mean air temperature
+### 13.1 Latest 1-minute mean air temperature
 
 Calling method:
 
@@ -773,7 +703,7 @@ interface LatestTemperatureRow {
 
 This regional product contains provisional data and is normally refreshed every 10 minutes.
 
-### 14.2 Latest 10-minute mean wind direction, speed and maximum gust
+### 13.2 Latest 10-minute mean wind direction, speed and maximum gust
 
 Calling method:
 
@@ -813,11 +743,11 @@ Parsing rules:
 - unavailable values are represented by `N/A`;
 - speed and gust should only be converted to numbers after checking for blank and `N/A` values.
 
-## 15. HKO Earth Weather prediction models
+## 14. HKO Earth Weather prediction models
 
 Viewer: <https://maps.weather.gov.hk/wxviewer/index.html?lang=en>
 
-### 15.1 Important status warning
+### 14.1 Important status warning
 
 The paths in this section were inferred from the current HKO Earth Weather web application. They are **not described by HKO as a versioned public API**.
 
@@ -832,7 +762,7 @@ Consequences:
 
 Use these feeds experimentally or behind a monitored server-side adapter. For ECMWF and AIFS numerical data in production, prefer ECMWF's official open-data service.
 
-### 15.2 Models and official displayed products
+### 14.2 Models and official displayed products
 
 | Viewer label | Internal ID | Displayed surface products | Forecast interval and range |
 |---|---|---|---|
@@ -847,7 +777,7 @@ The viewer also presents upper-air products where supported at pressure levels `
 
 HKO states that these are direct computer-model products without manual adjustment. They can differ from HKO's official local forecast and official tropical-cyclone forecast track.
 
-### 15.3 Discovering the latest base time
+### 14.3 Discovering the latest base time
 
 Each model has a small current-cycle JSON resource:
 
@@ -898,7 +828,7 @@ const current = await getJson(
 const baseTime = current.default;
 ```
 
-### 15.4 Raster layer URL format
+### 14.4 Raster layer URL format
 
 The atmospheric raster pattern is:
 
@@ -944,9 +874,9 @@ Useful field codes found in the viewer:
 | `DV` | divergence | s⁻¹-scaled viewer value |
 | `VO` | vorticity | s⁻¹-scaled viewer value |
 
-Do not assume every model produces every field. Use the availability table in section 15.2 and handle HTTP 404 or image-load failure.
+Do not assume every model produces every field. Use the availability table in section 14.2 and handle HTTP 404 or image-load failure.
 
-### 15.5 Raster return format
+### 14.5 Raster return format
 
 The return type is an RGBA PNG, typically representing the whole model domain on a fixed grid. It is not a JSON array and should not be interpreted as a pre-coloured screenshot.
 
@@ -963,7 +893,7 @@ HKO does not publish a stable schema describing the raster channel encoding, gri
 - extracting authoritative values at arbitrary coordinates requires reverse-engineering and continuously testing the viewer's decoder;
 - for raw values, use the original model provider's documented numerical data instead.
 
-### 15.6 Pressure and geopotential contours
+### 14.6 Pressure and geopotential contours
 
 The viewer loads contour data as KML using this pattern:
 
@@ -980,7 +910,7 @@ https://maps.weather.gov.hk/wxviewer/data/weather/
 
 KML responses contain geographic contour lines and labels. Treat the exact feature properties as internal viewer implementation details.
 
-### 15.7 ECMWF thunderstorm overlay
+### 14.7 ECMWF thunderstorm overlay
 
 The ECMWF viewer can load its potential-thunderstorm overlay as a PNG with a `TS` suffix:
 
@@ -990,7 +920,7 @@ The ECMWF viewer can load its potential-thunderstorm overlay as a PNG with a `TS
 
 This is an HKO post-processed display product, not a general HKO warning and not the same thing as an official Thunderstorm Warning (`WTS`).
 
-### 15.8 Building a model raster URL
+### 14.8 Building a model raster URL
 
 ```js
 function parseModelTime(value) {
@@ -1043,7 +973,7 @@ console.log(url);
 
 This code only constructs the URL. It does not decode the PNG into numerical forecast values.
 
-### 15.9 Automatic city forecast feed
+### 14.9 Automatic city forecast feed
 
 Earth Weather also loads an auxiliary machine-readable city forecast, but it is not exposed as a selectable per-model comparison.
 
@@ -1112,13 +1042,13 @@ interface CityForecastResponse {
 
 This JSON can be several megabytes. Cache the token and response rather than downloading it separately for every user request.
 
-## 16. Automatic Regional Weather Forecast (OCF) internal feeds
+## 15. Automatic Regional Weather Forecast (OCF) internal feeds
 
 Viewer: <https://maps.weather.gov.hk/ocf/>
 
 Official product notes: <https://maps.weather.gov.hk/ocf/help_e.html>
 
-### 16.1 Interface status and common behaviour
+### 15.1 Interface status and common behaviour
 
 The OCF site describes the forecast products, but it does not publish the website's data-file paths as a versioned public API. The calling methods in this section were inferred from the current OCF application and verified against live responses.
 
@@ -1133,9 +1063,9 @@ Consequences:
 
 The OCF nine-day station forecasts are automatic multi-model consensus products. HKO corrects contributing model forecasts using observations and combines them with weights based on past performance. They are not manually adjusted official forecasts.
 
-### 16.2 Nine-day station forecast
+### 15.2 Nine-day station forecast
 
-#### 16.2.1 Meaning and update schedule
+#### 15.2.1 Meaning and update schedule
 
 For supported Hong Kong stations, OCF supplies an hourly forecast for the next nine days containing air temperature, relative humidity, wind direction and wind speed. It also provides three-hourly weather-icon codes and daily summaries containing minimum and maximum temperature, a weather-icon code and probability of precipitation.
 
@@ -1151,7 +1081,7 @@ This is not the same field as `PSR` in the documented nine-day forecast. OCF pro
 
 The station forecasts normally update around noon and midnight.
 
-#### 16.2.2 Calling method
+#### 15.2.2 Calling method
 
 ```http
 GET https://maps.weather.gov.hk/ocf/dat/{stationCode}.xml
@@ -1184,7 +1114,7 @@ const hourlyTemperature = forecast.HourlyWeatherForecast.map(hour => ({
 
 Station codes are internal OCF identifiers. Obtain the required code from a successfully selected location in the current OCF application and keep the mapping configurable rather than assuming it is permanent.
 
-#### 16.2.3 Return format
+#### 15.2.3 Return format
 
 The station response contains both hourly and daily forecast fields:
 
@@ -1245,121 +1175,7 @@ Example fragment:
 
 Store `ForecastChanceOfRain` as a category. Do not convert `<10%` to zero or `>90%` to 100 without retaining the original value. Treat `ForecastHour` as Hong Kong local time in `YYYYMMDDHH` format and do not interpret it as UTC.
 
-### 16.3 One-hour lightning nowcast
-
-#### 16.3.1 Product characteristics
-
-The experimental lightning nowcast is generated by SWIRLS and covers approximately:
-
-- latitude `22.0` to `22.7` degrees North;
-- longitude `113.7` to `114.6` degrees East;
-- horizontal grid resolution of approximately `700 m`;
-- ten forecast maps at six-minute steps over the next hour.
-
-The product normally updates every three minutes, although HKO notes that radar processing and publication introduce a delay. The OCF interface also derives whether lightning is forecast within 10 km or 15 km of a selected location for the first and second 30-minute periods.
-
-This is forecast information. It is different from the `LHL` open-data feed in section 12, which reports observed lightning counts during the preceding hour.
-
-#### 16.3.2 Calling method
-
-First retrieve the current frame index:
-
-```http
-GET https://maps.weather.gov.hk/ocf/dat/nc/nc.ln.index.2.txt
-```
-
-Each non-empty row currently contains:
-
-```text
-validTime,imageFilename,jsonFilename,textFilename
-```
-
-Example:
-
-```text
-202607161700,ncln_minute42_3.png,ncln_minute42_3.json,ncln_minute42_3.txt
-```
-
-Resolve the files using different directories:
-
-```text
-PNG:  https://maps.weather.gov.hk/ocf/dat/nc/prd/{imageFilename}
-JSON: https://maps.weather.gov.hk/ocf/dat/nc/{jsonFilename}
-Text: https://maps.weather.gov.hk/ocf/dat/nc/{textFilename}
-```
-
-The index is the discovery step; do not construct the timestamped filenames independently.
-
-Example:
-
-```js
-const root = "https://maps.weather.gov.hk/ocf/dat/nc";
-const indexResponse = await fetch(`${root}/nc.ln.index.2.txt`, {
-  cache: "no-store",
-});
-if (!indexResponse.ok) {
-  throw new Error(`Lightning index failed: ${indexResponse.status}`);
-}
-
-const frames = (await indexResponse.text())
-  .trim()
-  .split(/\r?\n/)
-  .map(line => {
-    const [validTime, imageFilename, jsonFilename, textFilename] = line.split(",");
-    return {
-      validTime,
-      imageUrl: `${root}/prd/${imageFilename}`,
-      jsonUrl: `${root}/${jsonFilename}`,
-      textUrl: `${root}/${textFilename}`,
-    };
-  });
-
-const frameResponse = await fetch(frames[0].jsonUrl, {cache: "no-store"});
-if (!frameResponse.ok) {
-  throw new Error(`Lightning frame failed: ${frameResponse.status}`);
-}
-const frame = await frameResponse.json();
-```
-
-#### 16.3.3 JSON return format
-
-```ts
-interface OcfLightningFrame {
-  update_datetime: string;    // YYYYMMDDHHmm
-  forecast_basetime: string;  // YYYYMMDDHHmm
-  data: Array<{
-    forecast_datetime: string; // YYYYMMDDHHmm
-    affected_grid: Record<
-      string,                  // internal grid key such as "x_y"
-      {
-        radius: number;        // internal proximity classification value
-      }
-    >;
-  }>;
-  isUnderMaintenance?: boolean;
-}
-```
-
-Example with no forecast affected grids:
-
-```json
-{
-  "update_datetime": "202607161657",
-  "forecast_basetime": "202607161642",
-  "data": [
-    {
-      "forecast_datetime": "202607161700",
-      "affected_grid": {}
-    }
-  ]
-}
-```
-
-`affected_grid` is an object keyed by the viewer's internal grid coordinates, not a documented latitude/longitude array. HKO does not publish a stable conversion contract for these keys. Prefer the supplied PNG for display; if numerical proximity logic is required, isolate and test the viewer-grid conversion in a replaceable adapter.
-
-Do not infer warning status from this product. HKO states that the public warning, special-weather-tip and local-forecast products remain authoritative.
-
-## 17. Recommended application mapping
+## 16. Recommended application mapping
 
 | Application feature | Preferred feed |
 |---|---|
@@ -1373,14 +1189,12 @@ Do not infer warning status from this product. HKO states that the public warnin
 | Warning badges/notification state | Warning summary (`warnsum`) |
 | Full warning text and safety instructions | Warning information (`warningInfo`) |
 | Advisory banner | Special weather tips (`swt`) |
-| Hourly lightning totals | `LHL` |
 | Experimental hyperlocal observations | Smart-lamppost API |
 | Nine-day station temperature and daily chance of rain | OCF nine-day station forecast, with internal-interface warning |
-| Forecast lightning locations during the next hour | OCF lightning nowcast, with internal-interface warning |
 | Model map comparison | Earth Weather raster assets, with internal-interface warning |
 | Raw ECMWF/AIFS numerical modelling | ECMWF official open data rather than HKO viewer PNGs |
 
-## 18. Implementation recommendations
+## 17. Implementation recommendations
 
 1. **Call HKO from a server-side adapter where possible.** This permits caching, schema validation, timeouts and resilience if browser CORS rules change.
 2. **Cache according to the update interval.** Do not request a 10-minute feed every few seconds.
@@ -1391,7 +1205,7 @@ Do not infer warning status from this product. HKO states that the public warnin
 7. **Monitor undocumented viewer integrations.** Add response-content checks so an HTML error page is not accepted as a PNG, KML, JSON or OCF `.xml` response.
 8. **Review data terms and attribution.** Model-provider licences differ, particularly when redistributing model output.
 
-## 19. Sources
+## 18. Sources
 
 - HKO Open Data catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 - HKO Open Data API documentation: <https://data.weather.gov.hk/weatherAPI/doc/HKO_Open_Data_API_Documentation.pdf>

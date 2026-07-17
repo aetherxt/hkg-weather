@@ -69,7 +69,6 @@ Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API
 - Weather-warning information
 - Weather-warning summary
 - Special weather tips
-- Lightning count over Hong Kong territory in the past hour
 - Smart-lamppost meteorological observations
 - Latest one-minute mean regional air temperature
 - Latest ten-minute mean regional wind direction, wind speed and maximum gust
@@ -86,7 +85,6 @@ Catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
   - daily minimum and maximum temperature;
   - daily probability of precipitation.
 - Two-hour rainfall-nowcast frame index and raw rainfall-grid files, if the internal format is decoded
-- One-hour lightning-nowcast frame index and raw affected-grid JSON data
 
 Viewer: <https://maps.weather.gov.hk/ocf/>
 
@@ -151,7 +149,8 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - Preserve `fetched_at`, `source_updated_at` or observation time, `valid_at`, `lead_minutes`, `source_url`, `byte_size`, `content_hash` and `expires_at` where applicable.
 - Keep one replaceable latest document for products needed by the live page.
 - Insert an archive document only when its upstream timestamp or content hash changes.
-- No archived API record or derived verification record is retained for more than three days.
+- Datasets marked `Latest only` replace their current document and never write to the archive collection.
+- No archived API record is retained for more than three days.
 - Use MongoDB TTL indexes and proactively delete expired documents before archive insertion.
 - Do not store generated map tiles, browser-rendered weather layers or OCF-rendered fallback PNGs.
 - Retain static station, device and location lookup data as latest-only documents and replace them when their content changes.
@@ -165,23 +164,20 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Current weather report | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Local weather forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Official nine-day forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
-| Warning information | Raw JSON | Save each changed warning state; also maintain latest | 3 days |
-| Warning summary | Raw JSON | Save each changed warning state, including transition to no warnings; also maintain latest | 3 days |
-| Special weather tips | Raw JSON | Save each changed tips state, including transition to no tips; also maintain latest | 3 days |
-| Past-hour lightning count | Raw JSON | Save each new hourly period; also maintain latest | 3 days |
-| Smart-lamppost observations | Raw JSON per configured lamppost and device | Save each new measurement time; also maintain latest | 3 days |
+| Warning information | Raw JSON | Replace latest when the warning information changes | Latest only |
+| Warning summary | Raw JSON | Replace latest on each changed state, including transition to no warnings | Latest only |
+| Special weather tips | Raw JSON | Replace latest on each changed state, including transition to no tips | Latest only |
+| Smart-lamppost observations | Raw JSON for the devices selected in `backend/app/data/smart_lamppost_devices.json`: `50148:01` (Central), `27357:01` (Wan Chai), `AB3301:01` (Tsim Sha Tsui/Jordan) and `DF3644:01` (Kowloon Bay/Choi Hung) | Save each new measurement time; also maintain latest | 3 days |
 | Regional one-minute mean temperature | Raw CSV | Save each new source time; also maintain latest | 3 days |
 | Regional wind, speed and maximum gust | Raw CSV | Save each new source time; also maintain latest | 3 days |
 | OCF nine-day station forecasts | Raw JSON response per configured station | Save each new model time; also maintain latest per station | 3 days |
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
-| OCF one-hour lightning nowcast | Raw current index and affected-grid JSON | Maintain latest for live display | Latest only |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
 | Earth Weather rainfall | Losslessly cropped surface `RF` raster using the two-hour-nowcast geographic bounds | Save supported rainfall frames for each new model cycle; also maintain latest cycle | 3 days |
 | Other Earth Weather fields | None by default | Fetch on demand unless later added to the storage plan | Not stored |
 | 128 km radar | Original PNG plus bounds and observation time from KML | Maintain latest and archive one image every 30 minutes | Latest plus 3-day archive |
 | Current tropical-cyclone track | Raw XML | Save each changed track while a cyclone product exists; also maintain latest | 3 days |
 | Tropical-cyclone best track | Raw official data used when available for comparison | Fetch on demand or maintain the latest published file | Latest only |
-| Forecast-verification results | Compact BSON containing forecast identity, observation identity and calculated errors | Calculate after the matching observation arrives | 3 days |
 
 ### 3.4 Rainfall archive size
 
@@ -202,7 +198,8 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 5. Test the complete current-weather pipeline locally, then deploy it. Complete.
 6. Configure cron-job.org to call the production ingestion route every 10 minutes with `Authorization: Bearer <CRON_SECRET>`. Complete and verified with an automatic production run.
 7. Refactor JSON ingestion into a reusable dataset-specification service without changing the current-weather API or storage format. Complete.
-8. Add warning summary, warning information and special weather tips using the shared JSON ingestion service.
-9. Add the remaining official HKO feeds one at a time before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds.
+8. Add warning summary, warning information and special weather tips as latest-only datasets using the shared JSON ingestion service. Complete locally; production deployment and live ingestion verification remain.
+9. Add the remaining official HKO ingestion feeds before implementing internal OCF, Earth Weather, radar and tropical-cyclone feeds. Local forecast, nine-day forecast, station rainfall, gridded rainfall nowcast, regional temperature/wind and configurable smart-lamppost routes are complete locally; production deployment and live ingestion verification remain.
+10. Add public read routes for the newly ingested official feeds with the caching policies in section 1.3.
 
 Live MongoDB connectivity and integration checks are run manually by the project owner. Automated backend tests use mocks by default and must not connect to the live database.

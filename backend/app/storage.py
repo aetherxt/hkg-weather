@@ -15,3 +15,9 @@ async def ensure_storage_indexes(database: AsyncDatabase) -> None:
         name="archive_expiry_ttl",
         expireAfterSeconds=0,
     )
+    await archive.create_index(
+        [("dataset", ASCENDING), ("archive_slot", ASCENDING)],
+        name="archive_dataset_slot_unique",
+        unique=True,
+        partialFilterExpression={"archive_slot": {"$exists": True}},
+    )

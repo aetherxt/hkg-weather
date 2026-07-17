@@ -65,6 +65,16 @@ Add `MONGODB_INGEST_URI`, `MONGODB_READ_URI`, `MONGODB_DATABASE`, and
 `CRON_SECRET` to the Vercel project's environment variables. Scheduled jobs
 will call protected `/api/cron/*` endpoints on the same deployment domain.
 
+Smart-lamppost selections and map metadata are stored in
+`backend/app/data/smart_lamppost_devices.json`. Edit that version-controlled
+file to add or remove devices; no smart-lamppost environment variable is
+required. The current selection is:
+
+- `50148:01` — Central;
+- `27357:01` — Wan Chai;
+- `AB3301:01` — Tsim Sha Tsui / Jordan;
+- `DF3644:01` — Kowloon Bay / Choi Hung.
+
 ## Current-weather ingestion
 
 `POST /api/cron/current-weather` authenticates with
@@ -113,3 +123,31 @@ The response contains the decoded original HKO payload and storage metadata:
 Successful responses are cached by Vercel for five minutes with background
 revalidation. Browsers revalidate their own copies, and error responses are
 never cached.
+
+## Official HKO ingestion routes
+
+All ingestion routes use `POST`, require
+`Authorization: Bearer <CRON_SECRET>`, and return `Cache-Control: no-store`.
+
+| Route | Data stored |
+|---|---|
+| `/api/cron/current-weather` | Current weather, latest plus 3-day archive |
+| `/api/cron/local-forecast` | Local forecast, latest plus 3-day archive |
+| `/api/cron/nine-day-forecast` | Nine-day forecast, latest plus 3-day archive |
+| `/api/cron/warnings` | Warning summary, warning information and special tips, latest only |
+| `/api/cron/station-rainfall` | Past-hour station rainfall, latest plus 3-day archive |
+| `/api/cron/rainfall-nowcast` | Complete latest CSV and first two forecast periods in one archive slot per 30 minutes |
+| `/api/cron/regional-weather` | Regional temperature and wind/gust CSVs, latest plus 3-day archive |
+| `/api/cron/smart-lampposts` | One latest and archived document per configured device |
+
+The smart-lamppost route validates and loads the JSON configuration when it is
+called. Changes take effect after the updated application is deployed.
+
+Run the isolated backend checks with:
+
+```bash
+cd backend
+source .venv/bin/activate
+ruff check app tests
+pytest -q
+```

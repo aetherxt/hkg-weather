@@ -1,0 +1,30 @@
+[
+  {
+    "lamppostId": "50148",
+    "deviceId": "01",
+    "label": "Central",
+    "latitude": 22.282267,
+    "longitude": 114.16499
+  },
+  {
+    "lamppostId": "27357",
+    "deviceId": "01",
+    "label": "Wan Chai",
+    "latitude": 22.280797,
+    "longitude": 114.174429
+  },
+  {
+    "lamppostId": "AB3301",
+    "deviceId": "01",
+    "label": "Tsim Sha Tsui / Jordan",
+    "latitude": 22.29398,
+    "longitude": 114.169104
+  },
+  {
+    "lamppostId": "DF3644",
+    "deviceId": "01",
+    "label": "Kowloon Bay / Choi Hung",
+    "latitude": 22.331034,
+    "longitude": 114.20464
+  }
+]
