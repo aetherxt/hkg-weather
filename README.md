@@ -290,6 +290,10 @@ missing or invalid `document_id` and `archive_policy` values, creates the new
 partial unique/query indexes, and then removes the conflicting legacy indexes.
 It does not replace or delete weather payloads.
 
+Expected document IDs are recomputed for every record from its dataset and,
+where applicable, its station payload, lamppost payload, model or storm ID. A
+non-empty but incorrect ID is therefore repaired as well.
+
 Pause all cron-job.org ingestion jobs and deploy the matching application code
 before applying the migration. Then, from a machine whose IP is permitted by
 MongoDB Atlas, run:

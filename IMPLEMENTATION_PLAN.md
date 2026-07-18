@@ -203,6 +203,9 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
   source-update time, radar observation time and model valid time.
 - Store the first two nowcast valid times as archive metadata so an archive
   index can be returned without reading every numerical grid payload.
+- Validate every nowcast row and complete grid before storage, including finite
+  values, consistent issue time, chronological periods, unique coordinates and
+  rectangular grids with a consistent coordinate domain.
 - Do not store generated map tiles, browser-rendered weather layers or OCF-rendered fallback PNGs.
 - Retain static station, device and location lookup data as latest-only documents and replace them when their content changes.
 

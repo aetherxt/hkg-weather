@@ -113,6 +113,25 @@ def test_regional_temperature_returns_typed_missing_values() -> None:
     ]
 
 
+def test_regional_temperature_does_not_treat_calm_as_missing() -> None:
+    document = {
+        "payload": Binary(
+            b"Date time,Automatic Weather Station,Air Temperature(degree Celsius)\n"
+            b"202607181000,Chek Lap Kok,Calm\n"
+        ),
+        "source_updated_at": datetime(2026, 7, 18, 2, tzinfo=UTC),
+        "fetched_at": datetime(2026, 7, 18, 2, 5, tzinfo=UTC),
+    }
+
+    response = request(
+        "/api/weather/regional/temperature",
+        database_with_latest(document),
+    )
+
+    assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_regional_wind_normalizes_hko_calm_rows() -> None:
     document = {
         "payload": Binary(

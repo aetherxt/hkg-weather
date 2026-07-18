@@ -56,10 +56,20 @@ def test_document_id_is_inferred_for_legacy_archives(
 def test_existing_document_id_is_preserved() -> None:
     assert infer_document_id(
         {
-            "dataset": "ocf_station_forecast",
-            "document_id": "ocf_station_forecast:HKO",
+            "dataset": "current_weather",
+            "document_id": "current_weather",
         }
-    ) == "ocf_station_forecast:HKO"
+    ) == "current_weather"
+
+
+def test_plausible_but_incorrect_document_id_is_rebuilt() -> None:
+    assert infer_document_id(
+        {
+            "dataset": "earth_weather_rainfall",
+            "document_id": "wrong",
+            "model": "ec",
+        }
+    ) == "earth_weather_rainfall:ec"
 
 
 @pytest.mark.parametrize("invalid_document_id", ["", "   ", None, 7])
@@ -94,8 +104,10 @@ def test_invalid_existing_archive_policy_is_repaired_from_slot_presence() -> Non
 
 
 def test_migration_plan_finds_legacy_documents_and_indexes() -> None:
-    cursor = MagicMock()
-    cursor.__aiter__.return_value = iter(
+    payload_cursor = MagicMock()
+    payload_cursor.__aiter__.return_value = iter([])
+    metadata_cursor = MagicMock()
+    metadata_cursor.__aiter__.return_value = iter(
         [
             {"_id": "one", "dataset": "current_weather"},
             {
@@ -111,7 +123,7 @@ def test_migration_plan_finds_legacy_documents_and_indexes() -> None:
     archive.index_information = AsyncMock(
         return_value={"_id_": {}, "archive_dataset_content_unique": {}}
     )
-    archive.find.return_value = cursor
+    archive.find.side_effect = [payload_cursor, metadata_cursor]
     database = MagicMock()
     database.__getitem__.return_value = archive
 
@@ -122,8 +134,43 @@ def test_migration_plan_finds_legacy_documents_and_indexes() -> None:
     assert plan.policies_to_set == 2
     assert len(plan.updates) == 2
     assert plan.legacy_indexes == ("archive_dataset_content_unique",)
-    archive.find.assert_called_once()
-    assert archive.find.call_args.args[0] == {}
+    assert archive.find.call_count == 2
+    assert archive.find.call_args_list[1].args[0] == {}
+
+
+def test_migration_compares_payload_derived_document_ids() -> None:
+    payload_cursor = MagicMock()
+    payload_cursor.__aiter__.return_value = iter(
+        [
+            {
+                "_id": "ocf",
+                "dataset": "ocf_station_forecast",
+                "payload": json.dumps({"StationCode": "HKO"}).encode(),
+            }
+        ]
+    )
+    metadata_cursor = MagicMock()
+    metadata_cursor.__aiter__.return_value = iter(
+        [
+            {
+                "_id": "ocf",
+                "dataset": "ocf_station_forecast",
+                "document_id": "wrong",
+                "archive_policy": "content",
+            }
+        ]
+    )
+    archive = MagicMock()
+    archive.index_information = AsyncMock(return_value={})
+    archive.find.side_effect = [payload_cursor, metadata_cursor]
+    database = MagicMock()
+    database.__getitem__.return_value = archive
+
+    plan = asyncio.run(build_migration_plan(database))
+
+    assert plan.document_ids_to_set == 1
+    assert plan.policies_to_set == 0
+    assert len(plan.updates) == 1
 
 
 def test_migration_creates_replacement_indexes_before_dropping_legacy() -> None:

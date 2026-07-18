@@ -43,7 +43,6 @@ def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
         b"Ending Date and Time (in Hong Kong Time),Latitude (degree),"
         b"Longitude (degree),Half-hourly Nowcast Accumulated Rainfall (mm)\n"
         b"202607171800,202607171830,22.1,114.1,1.0\n"
-        b"202607171800,202607171830,22.2,114.2,2.0\n"
         b"202607171800,202607171900,22.1,114.1,3.0\n"
         b"202607171800,202607171930,22.1,114.1,4.0\n"
     )
@@ -65,6 +64,74 @@ def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
     assert GRIDDED_RAINFALL_SPEC.archive_policy is ArchivePolicy.SLOT
 
 
+@pytest.mark.parametrize(
+    "invalid_values",
+    [
+        "NaN,114.1,1.0",
+        "22.1,inf,1.0",
+        "22.1,114.1,-inf",
+    ],
+)
+def test_gridded_rainfall_rejects_non_finite_values(
+    invalid_values: str,
+) -> None:
+    raw = (
+        "Updated,Valid,Latitude,Longitude,Rainfall\n"
+        f"202607171800,202607171830,{invalid_values}\n"
+        "202607171800,202607171900,22.1,114.1,1.0\n"
+    ).encode()
+
+    with pytest.raises(ValueError, match="non-finite"):
+        validate_gridded_rainfall_csv(raw)
+
+
+def test_gridded_rainfall_requires_one_issue_time() -> None:
+    raw = (
+        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+        b"202607171800,202607171830,22.1,114.1,1.0\n"
+        b"202607171801,202607171900,22.1,114.1,2.0\n"
+    )
+
+    with pytest.raises(ValueError, match="inconsistent issue times"):
+        validate_gridded_rainfall_csv(raw)
+
+
+def test_gridded_rainfall_requires_chronological_forecast_periods() -> None:
+    raw = (
+        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+        b"202607171800,202607171900,22.1,114.1,1.0\n"
+        b"202607171800,202607171830,22.1,114.1,2.0\n"
+    )
+
+    with pytest.raises(ValueError, match="not chronological"):
+        validate_gridded_rainfall_csv(raw)
+
+
+def test_gridded_rainfall_rejects_duplicate_coordinates() -> None:
+    raw = (
+        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+        b"202607171800,202607171830,22.1,114.1,1.0\n"
+        b"202607171800,202607171830,22.1,114.1,2.0\n"
+        b"202607171800,202607171900,22.1,114.1,3.0\n"
+    )
+
+    with pytest.raises(ValueError, match="duplicate coordinates"):
+        validate_gridded_rainfall_csv(raw)
+
+
+def test_gridded_rainfall_requires_complete_rectangular_grids() -> None:
+    raw = (
+        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+        b"202607171800,202607171830,22.1,114.1,1.0\n"
+        b"202607171800,202607171830,22.2,114.2,2.0\n"
+        b"202607171800,202607171900,22.1,114.1,3.0\n"
+        b"202607171800,202607171900,22.2,114.2,4.0\n"
+    )
+
+    with pytest.raises(ValueError, match="not rectangular"):
+        validate_gridded_rainfall_csv(raw)
+
+
 def test_regional_temperature_csv_extracts_hong_kong_time() -> None:
     validated = validate_temperature_csv(
         b"Date time,Automatic Weather Station,Air Temperature(degree Celsius)\n"
@@ -83,6 +150,7 @@ def test_regional_temperature_csv_extracts_hong_kong_time() -> None:
         "202613011820,Cheung Chau,28.0",
         "202607171820,,28.0",
         "202607171820,Cheung Chau,not-a-number",
+        "202607171820,Cheung Chau,Calm",
         "202607171821,Cheung Chau,28.0",
     ],
 )
@@ -125,6 +193,7 @@ def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
     "invalid_row",
     [
         "202607181330,Wetland Park,Northwest,fast,14",
+        "202607181330,Wetland Park,Northwest,Calm,14",
         "202607181330,Wetland Park,Northwest,9,strong",
         "202607181331,Wetland Park,Northwest,9,14",
         "202607181330,,Northwest,9,14",

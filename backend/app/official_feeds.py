@@ -54,7 +54,9 @@ GRIDDED_RAINFALL_NOWCAST_DATASET = "gridded_rainfall_nowcast"
 REGIONAL_TEMPERATURE_DATASET = "regional_temperature"
 REGIONAL_WIND_DATASET = "regional_wind"
 SMART_LAMPPOST_DATASET = "smart_lamppost"
-MISSING_MEASUREMENT_VALUES = frozenset({"", "N/A", "M", "////", "CALM"})
+TEMPERATURE_MISSING_VALUES = frozenset({"", "N/A", "M", "////"})
+WIND_SPEED_MISSING_VALUES = frozenset({"", "N/A", "M", "////"})
+WIND_GUST_MISSING_VALUES = frozenset({"", "N/A", "M", "////"})
 SMART_LAMPPOST_CONFIG_PATH = (
     Path(__file__).parent / "data" / "smart_lamppost_devices.json"
 )
@@ -253,9 +255,13 @@ def parse_hong_kong_time(value: str) -> datetime:
     return datetime.strptime(value.strip(), "%Y%m%d%H%M").replace(tzinfo=HONG_KONG)
 
 
-def _validate_numeric_or_missing(value: str, field: str) -> None:
+def _validate_numeric_or_missing(
+    value: str,
+    field: str,
+    missing_values: frozenset[str],
+) -> None:
     cleaned = value.strip()
-    if cleaned.upper() in MISSING_MEASUREMENT_VALUES:
+    if cleaned.upper() in missing_values:
         return
     try:
         number = float(cleaned)
@@ -269,7 +275,7 @@ def validate_regional_observations(
     raw_payload: bytes,
     *,
     expected_columns: int,
-    measurement_columns: tuple[tuple[int, str], ...],
+    measurement_columns: tuple[tuple[int, str, frozenset[str]], ...],
     normalize_row: Callable[[list[str]], list[str]] | None = None,
 ) -> ValidatedRawPayload:
     reader = csv.reader(
@@ -298,8 +304,12 @@ def validate_regional_observations(
 
             if not row[1].strip():
                 raise ValueError("regional CSV station is empty")
-            for column, field in measurement_columns:
-                _validate_numeric_or_missing(row[column], field)
+            for column, field, missing_values in measurement_columns:
+                _validate_numeric_or_missing(
+                    row[column],
+                    field,
+                    missing_values,
+                )
             row_count += 1
     except csv.Error as error:
         raise ValueError("regional CSV is malformed") from error
@@ -313,7 +323,7 @@ def validate_temperature_csv(raw_payload: bytes) -> ValidatedRawPayload:
     return validate_regional_observations(
         raw_payload,
         expected_columns=3,
-        measurement_columns=((2, "temperature"),),
+        measurement_columns=((2, "temperature", TEMPERATURE_MISSING_VALUES),),
     )
 
 
@@ -334,54 +344,110 @@ def validate_wind_csv(raw_payload: bytes) -> ValidatedRawPayload:
     return validate_regional_observations(
         raw_payload,
         expected_columns=5,
-        measurement_columns=((3, "wind speed"), (4, "maximum gust")),
+        measurement_columns=(
+            (3, "wind speed", WIND_SPEED_MISSING_VALUES),
+            (4, "maximum gust", WIND_GUST_MISSING_VALUES),
+        ),
         normalize_row=normalize_wind_csv_row,
     )
 
 
 def validate_gridded_rainfall_csv(raw_payload: bytes) -> ValidatedRawPayload:
     source = io.StringIO(raw_payload.decode("utf-8-sig"))
-    reader = csv.reader(source)
-    header = next(reader, None)
-    if header is None or len(header) != 5:
-        raise ValueError("gridded rainfall CSV has an unexpected schema")
+    reader = csv.reader(source, strict=True)
+    source_updated_at: datetime | None = None
+    valid_time_order: list[datetime] = []
+    rows_by_valid_time: dict[datetime, list[list[str]]] = {}
+    coordinates_by_valid_time: dict[datetime, set[tuple[float, float]]] = {}
+    current_valid_time: datetime | None = None
 
+    try:
+        header = next(reader, None)
+        if header is None or len(header) != 5:
+            raise ValueError("gridded rainfall CSV has an unexpected schema")
+
+        for row in reader:
+            if not row or all(not value.strip() for value in row):
+                continue
+            if len(row) != 5:
+                raise ValueError("gridded rainfall row has an unexpected schema")
+
+            updated_time, valid_time, raw_latitude, raw_longitude, raw_rainfall = row
+            row_updated_at = parse_hong_kong_time(updated_time)
+            row_valid_at = parse_hong_kong_time(valid_time)
+            try:
+                latitude = float(raw_latitude)
+                longitude = float(raw_longitude)
+                rainfall = float(raw_rainfall)
+            except ValueError as error:
+                raise ValueError(
+                    "gridded rainfall row contains a non-numeric value"
+                ) from error
+            if not all(
+                math.isfinite(value)
+                for value in (latitude, longitude, rainfall)
+            ):
+                raise ValueError("gridded rainfall row contains a non-finite value")
+            if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+                raise ValueError("gridded rainfall coordinate is out of range")
+
+            if source_updated_at is None:
+                source_updated_at = row_updated_at
+            elif row_updated_at != source_updated_at:
+                raise ValueError("gridded rainfall has inconsistent issue times")
+            if row_valid_at <= row_updated_at:
+                raise ValueError("gridded rainfall valid time is not in the future")
+
+            if row_valid_at != current_valid_time:
+                if row_valid_at in rows_by_valid_time:
+                    raise ValueError(
+                        "gridded rainfall forecast periods are not contiguous"
+                    )
+                if valid_time_order and row_valid_at <= valid_time_order[-1]:
+                    raise ValueError(
+                        "gridded rainfall forecast periods are not chronological"
+                    )
+                valid_time_order.append(row_valid_at)
+                rows_by_valid_time[row_valid_at] = []
+                coordinates_by_valid_time[row_valid_at] = set()
+                current_valid_time = row_valid_at
+
+            coordinate = (latitude, longitude)
+            coordinates = coordinates_by_valid_time[row_valid_at]
+            if coordinate in coordinates:
+                raise ValueError("gridded rainfall grid has duplicate coordinates")
+            coordinates.add(coordinate)
+            rows_by_valid_time[row_valid_at].append(row)
+    except csv.Error as error:
+        raise ValueError("gridded rainfall CSV is malformed") from error
+
+    if source_updated_at is None or len(valid_time_order) < 2:
+        raise ValueError("gridded rainfall CSV contains insufficient data")
+
+    reference_coordinates: set[tuple[float, float]] | None = None
+    for valid_time in valid_time_order:
+        coordinates = coordinates_by_valid_time[valid_time]
+        latitudes = {latitude for latitude, _ in coordinates}
+        longitudes = {longitude for _, longitude in coordinates}
+        if len(coordinates) != len(latitudes) * len(longitudes):
+            raise ValueError("gridded rainfall grid is not rectangular")
+        if reference_coordinates is None:
+            reference_coordinates = coordinates
+        elif coordinates != reference_coordinates:
+            raise ValueError("gridded rainfall forecast grids are inconsistent")
+
+    selected_valid_times = sorted(valid_time_order)[:2]
     archive_buffer = io.StringIO(newline="")
     writer = csv.writer(archive_buffer, lineterminator="\n")
     writer.writerow(header)
-    selected_valid_times: list[str] = []
-    source_updated_at: datetime | None = None
-    row_count = 0
-
-    for row in reader:
-        if not row:
-            continue
-        if len(row) != 5:
-            raise ValueError("gridded rainfall row has an unexpected schema")
-        updated_time, valid_time, latitude, longitude, rainfall = row
-        row_updated_at = parse_hong_kong_time(updated_time)
-        parse_hong_kong_time(valid_time)
-        float(latitude)
-        float(longitude)
-        float(rainfall)
-        source_updated_at = source_updated_at or row_updated_at
-        row_count += 1
-
-        if valid_time not in selected_valid_times and len(selected_valid_times) < 2:
-            selected_valid_times.append(valid_time)
-        if valid_time in selected_valid_times:
-            writer.writerow(row)
-
-    if source_updated_at is None or row_count == 0 or len(selected_valid_times) < 2:
-        raise ValueError("gridded rainfall CSV contains insufficient data")
+    for valid_time in selected_valid_times:
+        writer.writerows(rows_by_valid_time[valid_time])
 
     return ValidatedRawPayload(
         source_updated_at=source_updated_at,
         archive_payload=archive_buffer.getvalue().encode(),
         metadata={
-            "archive_valid_times": [
-                parse_hong_kong_time(value) for value in selected_valid_times
-            ]
+            "archive_valid_times": selected_valid_times,
         },
     )
 

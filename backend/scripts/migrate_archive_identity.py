@@ -52,10 +52,6 @@ def _json_payload(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def infer_document_id(document: dict[str, Any]) -> str:
-    existing = document.get("document_id")
-    if isinstance(existing, str) and existing and existing == existing.strip():
-        return existing
-
     dataset = document.get("dataset")
     if not isinstance(dataset, str) or not dataset:
         raise ValueError("archive document has no dataset")
@@ -112,6 +108,18 @@ async def build_migration_plan(database: AsyncDatabase) -> ArchiveMigrationPlan:
         "model": 1,
         "storm_id": 1,
     }
+    payload_identity_datasets = (
+        OCF_STATION_FORECAST_DATASET,
+        SMART_LAMPPOST_DATASET,
+    )
+    expected_payload_ids = {}
+    payload_cursor = archive.find(
+        {"dataset": {"$in": list(payload_identity_datasets)}},
+        {"dataset": 1, "payload": 1},
+    )
+    async for document in payload_cursor:
+        expected_payload_ids[document["_id"]] = infer_document_id(document)
+
     # Scan the small metadata projection for every retained archive record so
     # present-but-invalid values are repaired as well as missing fields.
     cursor = archive.find({}, projection)
@@ -124,23 +132,14 @@ async def build_migration_plan(database: AsyncDatabase) -> ArchiveMigrationPlan:
         scanned_documents += 1
         fields: dict[str, str] = {}
         existing_document_id = document.get("document_id")
-        if not (
-            isinstance(existing_document_id, str)
-            and existing_document_id
-            and existing_document_id == existing_document_id.strip()
-        ):
-            if document.get("dataset") in {
-                OCF_STATION_FORECAST_DATASET,
-                SMART_LAMPPOST_DATASET,
-            }:
-                payload_document = await archive.find_one(
-                    {"_id": document["_id"]},
-                    {"payload": 1},
-                )
-                if payload_document is None:
-                    raise ValueError("archive document disappeared during migration")
-                document["payload"] = payload_document.get("payload")
-            fields["document_id"] = infer_document_id(document)
+        if document.get("dataset") in payload_identity_datasets:
+            expected_document_id = expected_payload_ids.get(document["_id"])
+            if expected_document_id is None:
+                raise ValueError("archive document disappeared during migration")
+        else:
+            expected_document_id = infer_document_id(document)
+        if existing_document_id != expected_document_id:
+            fields["document_id"] = expected_document_id
             document_ids_to_set += 1
         expected_policy = infer_archive_policy(document).value
         if document.get("archive_policy") != expected_policy:

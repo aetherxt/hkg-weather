@@ -29,15 +29,17 @@ from .internal_feeds import (
 from .official_feeds import (
     GRIDDED_RAINFALL_NOWCAST_DATASET,
     LOCAL_FORECAST_DATASET,
-    MISSING_MEASUREMENT_VALUES,
     NINE_DAY_FORECAST_DATASET,
     REGIONAL_TEMPERATURE_DATASET,
     REGIONAL_WIND_DATASET,
     SMART_LAMPPOST_DATASET,
     SPECIAL_WEATHER_TIPS_DATASET,
     STATION_RAINFALL_DATASET,
+    TEMPERATURE_MISSING_VALUES,
     WARNING_INFORMATION_DATASET,
     WARNING_SUMMARY_DATASET,
+    WIND_GUST_MISSING_VALUES,
+    WIND_SPEED_MISSING_VALUES,
     LocalForecastPayload,
     NineDayForecastPayload,
     SmartLamppostPayload,
@@ -311,9 +313,12 @@ def _public_keys(value: Any) -> Any:
     return normalized
 
 
-def _number_or_none(value: str) -> float | None:
+def _number_or_none(
+    value: str,
+    missing_values: frozenset[str],
+) -> float | None:
     cleaned = value.strip()
-    if cleaned.upper() in MISSING_MEASUREMENT_VALUES:
+    if cleaned.upper() in missing_values:
         return None
     try:
         number = float(cleaned)
@@ -706,7 +711,10 @@ async def get_regional_temperature(
             TemperatureReading(
                 observed_at=parse_hong_kong_time(row[0]),
                 station=row[1].strip(),
-                temperature_c=_number_or_none(row[2]),
+                temperature_c=_number_or_none(
+                    row[2],
+                    TEMPERATURE_MISSING_VALUES,
+                ),
             )
             for row in rows
         ]
@@ -749,8 +757,14 @@ async def get_regional_wind(
                     if not row[2].strip() or row[2].strip().upper() == "N/A"
                     else row[2].strip()
                 ),
-                mean_wind_speed_kmh=_number_or_none(row[3]),
-                maximum_gust_kmh=_number_or_none(row[4]),
+                mean_wind_speed_kmh=_number_or_none(
+                    row[3],
+                    WIND_SPEED_MISSING_VALUES,
+                ),
+                maximum_gust_kmh=_number_or_none(
+                    row[4],
+                    WIND_GUST_MISSING_VALUES,
+                ),
             )
             for row in rows
         ]
