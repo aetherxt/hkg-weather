@@ -42,18 +42,21 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 - Pydantic validates backend environment variables without logging their values.
 - Python runtime dependencies are defined in `backend/requirements.txt`; pytest and Ruff use dedicated configuration files so Vercel does not treat the backend as a `uv` package project.
 - PyMongo creates separate lazy, reusable asynchronous clients for the ingestion and reader users.
-- JSON datasets use a shared, specification-driven ingestion service for upstream fetching, Pydantic validation, raw-byte hashing, latest/archive writes, retention and API error translation.
-- Each JSON source supplies only its dataset identifiers, URL, payload model, source-update-time extractor and archive-retention policy.
-- Raw CSV, KML and PNG datasets use a parallel specification-driven ingestion
-  service that preserves original bytes and validated dataset metadata.
+- JSON and raw datasets use one shared ingestion core for fetching, hashing,
+  latest/archive writes, retention and API error translation. Format-specific
+  modules supply only validation and dataset configuration.
+- Each JSON source supplies its identifiers, URL, payload model,
+  source-update-time extractor and retention policy. CSV, KML and PNG sources
+  supply a raw-byte validator and any archive metadata or reduced payload.
 - Regional temperature and wind ingestion validates every non-empty row,
   including schema, calendar time, station identity, measurement values and
   consistent observation times, before replacing stored data.
 - `storage_read.py` provides reusable latest-document, stored-metadata, JSON,
   CSV and binary readers.
-- `weather_reads.py` owns the typed public weather router, response models,
-  public field normalization, grid parsing, GeoJSON conversion and bounded
-  archive access.
+- `weather_reads.py` composes focused latest, map and archive routers. Shared
+  response models and read helpers live in `weather_read_models.py` and
+  `weather_read_common.py`; gridded-rainfall parsing is isolated in
+  `rainfall_nowcast.py`.
 - The implemented public API contains 27 `GET /api/weather/*` route patterns:
   13 latest-data routes, six map-data routes and eight archive routes.
 - Public readers decode BSON binary payloads and return camelCase application
@@ -261,14 +264,21 @@ hkg-weather/
 │   │   ├── config.py                    # Environment and application settings
 │   │   ├── database.py                  # MongoDB ingestion and reader clients
 │   │   ├── internal_feeds.py            # OCF, Earth Weather, radar and cyclone feeds
-│   │   ├── json_ingestion.py            # Shared JSON ingestion pipeline
+│   │   ├── ingestion.py                 # Shared fetch, storage and archive pipeline
+│   │   ├── json_ingestion.py            # JSON validation adapter
 │   │   ├── main.py                      # FastAPI entrypoint and HTTP routes
 │   │   ├── official_feeds.py            # Documented HKO feed definitions
-│   │   ├── raw_ingestion.py             # CSV, XML, image and other raw ingestion
+│   │   ├── rainfall_nowcast.py           # Gridded-rainfall parser and validator
+│   │   ├── raw_ingestion.py             # Raw-payload validation adapter
 │   │   ├── storage.py                   # MongoDB indexes and archive policies
 │   │   ├── storage_read.py              # Shared JSON, CSV, binary and metadata readers
 │   │   ├── upstream.py                  # Shared upstream HTTP client
-│   │   ├── weather_reads.py             # Typed public GET routes and normalizers
+│   │   ├── weather_reads.py             # Public weather router composition
+│   │   ├── weather_latest_reads.py      # Latest observation and forecast routes
+│   │   ├── weather_map_reads.py         # Latest numerical grid and image routes
+│   │   ├── weather_archive_reads.py     # Bounded archive routes
+│   │   ├── weather_read_common.py       # Shared reader helpers
+│   │   ├── weather_read_models.py       # Public response models
 │   │   └── data/
 │   │       ├── ocf_stations.json        # All 16 stored OCF stations
 │   │       └── smart_lamppost_devices.json
@@ -276,19 +286,15 @@ hkg-weather/
 │   ├── scripts/
 │   │   ├── __init__.py                  # Script package
 │   │   ├── check_database.py            # Local MongoDB connectivity check
-│   │   ├── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
-│   │   └── migrate_archive_identity.py  # One-time archive/index migration
+│   │   └── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
 │   ├── tests/
 │   │   ├── test_auth.py
 │   │   ├── test_configure_cron_jobs.py
 │   │   ├── test_current_weather.py
-│   │   ├── test_current_weather_read.py
-│   │   ├── test_current_weather_read_route.py
 │   │   ├── test_current_weather_route.py
 │   │   ├── test_health.py
 │   │   ├── test_internal_feeds.py
 │   │   ├── test_json_ingestion.py
-│   │   ├── test_migrate_archive_identity.py
 │   │   ├── test_official_feed_routes.py
 │   │   ├── test_official_feeds.py
 │   │   ├── test_raw_ingestion.py

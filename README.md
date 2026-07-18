@@ -276,38 +276,3 @@ source .venv/bin/activate
 ruff check app tests
 pytest -q
 ```
-
-## Archive identity/index migration
-
-Archive records use one of two explicit policies:
-
-- `content`: unique by `dataset`, `document_id` and `content_hash`;
-- `slot`: unique by `dataset`, `document_id` and `archive_slot`.
-
-The migration from the original archive indexes must be run once against the
-live database. It scans every retained archive record's metadata, repairs
-missing or invalid `document_id` and `archive_policy` values, creates the new
-partial unique/query indexes, and then removes the conflicting legacy indexes.
-It does not replace or delete weather payloads.
-
-Expected document IDs are recomputed for every record from its dataset and,
-where applicable, its station payload, lamppost payload, model or storm ID. A
-non-empty but incorrect ID is therefore repaired as well.
-
-Pause all cron-job.org ingestion jobs and deploy the matching application code
-before applying the migration. Then, from a machine whose IP is permitted by
-MongoDB Atlas, run:
-
-```bash
-cd backend
-source .venv/bin/activate
-python -m scripts.migrate_archive_identity
-python -m scripts.migrate_archive_identity --apply
-```
-
-The first command is a dry run. Review its database name, backfill counts and
-legacy-index list before running the second command and confirming the change.
-After it succeeds, run the dry run again; it should report no remaining fields
-or legacy indexes to migrate. Re-enable the cron jobs, manually run
-`/api/cron/ingest-all`, and verify that new archive records contain both
-`document_id` and `archive_policy`.

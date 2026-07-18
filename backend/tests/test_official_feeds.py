@@ -9,6 +9,7 @@ from app.official_feeds import (
     LOCAL_FORECAST_SPEC,
     SPECIAL_WEATHER_TIPS_SPEC,
     WARNING_SUMMARY_SPEC,
+    WIND_CSV_HEADER,
     SmartLamppostObservation,
     load_smart_lamppost_devices,
     smart_lamppost_spec,
@@ -16,7 +17,13 @@ from app.official_feeds import (
     validate_temperature_csv,
     validate_wind_csv,
 )
+from app.rainfall_nowcast import GRIDDED_RAINFALL_HEADER
 from app.storage import ArchivePolicy
+
+GRIDDED_RAINFALL_HEADER_TEXT = ",".join(GRIDDED_RAINFALL_HEADER) + "\n"
+GRIDDED_RAINFALL_HEADER_BYTES = GRIDDED_RAINFALL_HEADER_TEXT.encode()
+WIND_HEADER_TEXT = ",".join(WIND_CSV_HEADER) + "\n"
+WIND_HEADER_BYTES = WIND_HEADER_TEXT.encode()
 
 
 def test_official_json_specs_extract_source_times_and_retention() -> None:
@@ -38,10 +45,7 @@ def test_official_json_specs_extract_source_times_and_retention() -> None:
 
 
 def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
-    raw = (
-        b"Updated Date and Time (in Hong Kong Time),"
-        b"Ending Date and Time (in Hong Kong Time),Latitude (degree),"
-        b"Longitude (degree),Half-hourly Nowcast Accumulated Rainfall (mm)\n"
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
         b"202607171800,202607171830,22.1,114.1,1.0\n"
         b"202607171800,202607171900,22.1,114.1,3.0\n"
         b"202607171800,202607171930,22.1,114.1,4.0\n"
@@ -76,8 +80,7 @@ def test_gridded_rainfall_rejects_non_finite_values(
     invalid_values: str,
 ) -> None:
     raw = (
-        "Updated,Valid,Latitude,Longitude,Rainfall\n"
-        f"202607171800,202607171830,{invalid_values}\n"
+        GRIDDED_RAINFALL_HEADER_TEXT + f"202607171800,202607171830,{invalid_values}\n"
         "202607171800,202607171900,22.1,114.1,1.0\n"
     ).encode()
 
@@ -86,8 +89,7 @@ def test_gridded_rainfall_rejects_non_finite_values(
 
 
 def test_gridded_rainfall_requires_one_issue_time() -> None:
-    raw = (
-        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
         b"202607171800,202607171830,22.1,114.1,1.0\n"
         b"202607171801,202607171900,22.1,114.1,2.0\n"
     )
@@ -96,20 +98,58 @@ def test_gridded_rainfall_requires_one_issue_time() -> None:
         validate_gridded_rainfall_csv(raw)
 
 
-def test_gridded_rainfall_requires_chronological_forecast_periods() -> None:
-    raw = (
-        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+def test_gridded_rainfall_accepts_unordered_forecast_periods() -> None:
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
         b"202607171800,202607171900,22.1,114.1,1.0\n"
         b"202607171800,202607171830,22.1,114.1,2.0\n"
     )
 
-    with pytest.raises(ValueError, match="not chronological"):
+    validated = validate_gridded_rainfall_csv(raw)
+
+    assert validated.metadata["archive_valid_times"] == [
+        datetime.fromisoformat("2026-07-17T18:30:00+08:00"),
+        datetime.fromisoformat("2026-07-17T19:00:00+08:00"),
+    ]
+
+
+def test_gridded_rainfall_accepts_interleaved_complete_grids() -> None:
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
+        b"202607171800,202607171830,22.1,114.1,1.0\n"
+        b"202607171800,202607171900,22.1,114.1,2.0\n"
+        b"202607171800,202607171830,22.1,114.2,3.0\n"
+        b"202607171800,202607171900,22.1,114.2,4.0\n"
+    )
+
+    validated = validate_gridded_rainfall_csv(raw)
+
+    assert validated.metadata["archive_valid_times"] == [
+        datetime.fromisoformat("2026-07-17T18:30:00+08:00"),
+        datetime.fromisoformat("2026-07-17T19:00:00+08:00"),
+    ]
+
+
+def test_gridded_rainfall_requires_half_hourly_forecast_periods() -> None:
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
+        b"202607171800,202607171817,22.1,114.1,1.0\n"
+        b"202607171800,202607171943,22.1,114.1,2.0\n"
+    )
+
+    with pytest.raises(ValueError, match="not half-hourly"):
+        validate_gridded_rainfall_csv(raw)
+
+
+def test_gridded_rainfall_rejects_negative_accumulation() -> None:
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
+        b"202607171800,202607171830,22.1,114.1,-0.1\n"
+        b"202607171800,202607171900,22.1,114.1,1.0\n"
+    )
+
+    with pytest.raises(ValueError, match="negative"):
         validate_gridded_rainfall_csv(raw)
 
 
 def test_gridded_rainfall_rejects_duplicate_coordinates() -> None:
-    raw = (
-        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
         b"202607171800,202607171830,22.1,114.1,1.0\n"
         b"202607171800,202607171830,22.1,114.1,2.0\n"
         b"202607171800,202607171900,22.1,114.1,3.0\n"
@@ -120,8 +160,7 @@ def test_gridded_rainfall_rejects_duplicate_coordinates() -> None:
 
 
 def test_gridded_rainfall_requires_complete_rectangular_grids() -> None:
-    raw = (
-        b"Updated,Valid,Latitude,Longitude,Rainfall\n"
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
         b"202607171800,202607171830,22.1,114.1,1.0\n"
         b"202607171800,202607171830,22.2,114.2,2.0\n"
         b"202607171800,202607171900,22.1,114.1,3.0\n"
@@ -141,6 +180,16 @@ def test_regional_temperature_csv_extracts_hong_kong_time() -> None:
     assert validated.source_updated_at == datetime.fromisoformat(
         "2026-07-17T18:20:00+08:00"
     )
+
+
+def test_regional_temperature_requires_the_documented_header() -> None:
+    raw = (
+        b"Date time,Air Temperature(degree Celsius),Automatic Weather Station\n"
+        b"202607171820,29.1,Chek Lap Kok\n"
+    )
+
+    with pytest.raises(ValueError, match="unexpected schema"):
+        validate_temperature_csv(raw)
 
 
 @pytest.mark.parametrize(
@@ -179,8 +228,7 @@ def test_regional_temperature_accepts_supported_missing_values() -> None:
 
 def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
     validated = validate_wind_csv(
-        b"Date time,Automatic Weather Station,Direction,Speed,Gust\n"
-        b"202607181330,Central Pier,Northwest,9,14\n"
+        WIND_HEADER_BYTES + b"202607181330,Central Pier,Northwest,9,14\n"
         b"202607181330,Lamma Island,Calm,Calm,0,\n"
     )
 
@@ -201,9 +249,7 @@ def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
 )
 def test_regional_wind_validates_every_measurement(invalid_row: str) -> None:
     raw = (
-        "Date time,Automatic Weather Station,Direction,Speed,Gust\n"
-        "202607181330,Central Pier,Northwest,9,14\n"
-        f"{invalid_row}\n"
+        WIND_HEADER_TEXT + f"202607181330,Central Pier,Northwest,9,14\n{invalid_row}\n"
     ).encode()
 
     with pytest.raises(ValueError):

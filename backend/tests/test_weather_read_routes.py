@@ -11,6 +11,11 @@ from pymongo.errors import OperationFailure
 
 from app.database import get_read_database
 from app.main import app
+from app.official_feeds import WIND_CSV_HEADER
+from app.rainfall_nowcast import GRIDDED_RAINFALL_HEADER
+
+GRIDDED_RAINFALL_HEADER_BYTES = (",".join(GRIDDED_RAINFALL_HEADER) + "\n").encode()
+WIND_HEADER_BYTES = (",".join(WIND_CSV_HEADER) + "\n").encode()
 
 
 def request(
@@ -60,6 +65,47 @@ def json_document(
         "content_type": "application/json",
         "byte_size": 100,
     }
+
+
+def test_current_weather_uses_shared_reader_and_current_cache() -> None:
+    document = json_document(
+        {
+            "updateTime": "2026-07-17T17:02:00+08:00",
+            "icon": [60],
+        },
+        source_updated_at=datetime(2026, 7, 17, 9, 2, tzinfo=UTC),
+    )
+
+    response = request("/api/weather/current", database_with_latest(document))
+
+    assert response.status_code == 200
+    assert response.json()["data"]["icon"] == [60]
+    assert response.json()["meta"]["dataset"] == "current_weather"
+    assert response.headers["cache-control"] == ("public, max-age=0, must-revalidate")
+    assert response.headers["vercel-cdn-cache-control"] == (
+        "max-age=300, stale-while-revalidate=600"
+    )
+
+
+def test_current_weather_uses_shared_not_found_error() -> None:
+    response = request("/api/weather/current", database_with_latest(None))
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Weather data not found"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_current_weather_rejects_invalid_stored_payload() -> None:
+    document = {
+        "payload": Binary(b"{}"),
+        "source_updated_at": datetime(2026, 7, 17, 9, 2, tzinfo=UTC),
+        "fetched_at": datetime(2026, 7, 17, 9, 19, tzinfo=UTC),
+    }
+
+    response = request("/api/weather/current", database_with_latest(document))
+
+    assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_local_forecast_decodes_json_and_sets_forecast_cache() -> None:
@@ -135,8 +181,7 @@ def test_regional_temperature_does_not_treat_calm_as_missing() -> None:
 def test_regional_wind_normalizes_hko_calm_rows() -> None:
     document = {
         "payload": Binary(
-            b"Date time,Automatic Weather Station,Direction,Speed,Gust\n"
-            b"202607181330,Central Pier,Northwest,9,14\n"
+            WIND_HEADER_BYTES + b"202607181330,Central Pier,Northwest,9,14\n"
             b"202607181330,Lamma Island,Calm,Calm,0,\n"
             b"202607181330,Wetland Park,Calm,Calm,1,\n"
         ),
@@ -178,8 +223,7 @@ def test_regional_wind_normalizes_hko_calm_rows() -> None:
 def test_rainfall_grid_is_north_to_south_and_west_to_east() -> None:
     document = {
         "payload": Binary(
-            b"Updated,Valid,Latitude,Longitude,Rainfall\n"
-            b"202607181000,202607181030,22.0,114.1,3\n"
+            GRIDDED_RAINFALL_HEADER_BYTES + b"202607181000,202607181030,22.0,114.1,3\n"
             b"202607181000,202607181030,23.0,114.0,1\n"
             b"202607181000,202607181030,22.0,114.0,4\n"
             b"202607181000,202607181030,23.0,114.1,2\n"
@@ -275,7 +319,7 @@ def test_database_failures_return_uncached_503() -> None:
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_nowcast_history_uses_metadata_only_and_supports_legacy_documents() -> None:
+def test_nowcast_history_uses_metadata_only() -> None:
     cursor = MagicMock()
     cursor.sort.return_value = cursor
     cursor.limit.return_value = cursor
@@ -284,6 +328,10 @@ def test_nowcast_history_uses_metadata_only_and_supports_legacy_documents() -> N
             {
                 "source_updated_at": datetime(2026, 7, 18, 5, 24, tzinfo=UTC),
                 "fetched_at": datetime(2026, 7, 18, 5, 25, tzinfo=UTC),
+                "archive_valid_times": [
+                    datetime(2026, 7, 18, 5, 54, tzinfo=UTC),
+                    datetime(2026, 7, 18, 6, 24, tzinfo=UTC),
+                ],
             }
         ]
     )
@@ -305,18 +353,12 @@ def test_nowcast_history_uses_metadata_only_and_supports_legacy_documents() -> N
         {
             "issueTime": "2026-07-18T13:24:00+08:00",
             "validTime": "2026-07-18T13:54:00+08:00",
-            "url": (
-                "/api/weather/history/rainfall/nowcast/"
-                "202607181324/202607181354"
-            ),
+            "url": ("/api/weather/history/rainfall/nowcast/202607181324/202607181354"),
         },
         {
             "issueTime": "2026-07-18T13:24:00+08:00",
             "validTime": "2026-07-18T14:24:00+08:00",
-            "url": (
-                "/api/weather/history/rainfall/nowcast/"
-                "202607181324/202607181424"
-            ),
+            "url": ("/api/weather/history/rainfall/nowcast/202607181324/202607181424"),
         },
     ]
     projection = archive.find.call_args.args[1]

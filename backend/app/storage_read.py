@@ -114,13 +114,21 @@ def decode_csv_rows(
     dataset: str,
     *,
     expected_columns: int,
+    expected_header: tuple[str, ...] | None = None,
     normalize_row: Callable[[list[str]], list[str]] | None = None,
 ) -> tuple[list[list[str]], StoredDocument]:
     stored = validate_stored_document(document, dataset)
     try:
         reader = csv.reader(io.StringIO(stored.payload.decode("utf-8-sig")))
         header = next(reader, None)
-        if header is None or len(header) != expected_columns:
+        if (
+            header is None
+            or len(header) != expected_columns
+            or (
+                expected_header is not None
+                and tuple(value.strip() for value in header) != expected_header
+            )
+        ):
             raise ValueError("stored CSV has an unexpected schema")
         rows = []
         for row in reader:

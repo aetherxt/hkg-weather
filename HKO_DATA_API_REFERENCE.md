@@ -1331,7 +1331,12 @@ Read-side implementation ownership is intentionally separate from ingestion:
 | File | Responsibility |
 |---|---|
 | `backend/app/storage_read.py` | Stored metadata validation and reusable latest JSON, CSV and binary readers |
-| `backend/app/weather_reads.py` | Typed public routes, response models, normalization, grid parsing, GeoJSON and bounded archive reads |
+| `backend/app/weather_reads.py` | Composes the latest, map and archive weather routers |
+| `backend/app/weather_latest_reads.py` | Latest observations, forecasts and normalized JSON/CSV responses |
+| `backend/app/weather_map_reads.py` | Latest numerical rainfall, radar and model-image routes |
+| `backend/app/weather_archive_reads.py` | Bounded timestamp-addressed archive routes |
+| `backend/app/weather_read_common.py` | Shared reader, cache, image and metadata helpers |
+| `backend/app/weather_read_models.py` | Typed public response contracts |
 | `backend/app/official_feeds.py` | Official HKO schemas, validation and dataset-specific upstream anomalies |
 | `backend/app/internal_feeds.py` | OCF, Earth Weather, radar and tropical-cyclone schemas and ingestion adapters |
 | `backend/app/storage.py` | Reproducible MongoDB archive indexes and expiry policy |
@@ -1373,13 +1378,10 @@ and images are fetched only after the caller selects a frame.
 - The latest document keeps the complete validated upstream CSV.
 - Each 30-minute archive slot keeps only the first two forecast periods,
   covering the following 30 and 60 minutes.
-- New archive documents also store those two valid times in
+- Archive documents store those two valid times in
   `archive_valid_times` metadata.
 - The archive-index GET route projects timestamp metadata only. It does not
   load every archived numerical grid.
-- For archive documents written before `archive_valid_times` was introduced,
-  the adapter derives the first two valid times as issue time plus 30 and 60
-  minutes.
 - A selected frame is returned as a rectangular numerical grid with bounds,
   width, height and row-major values ordered north-to-south and west-to-east.
 

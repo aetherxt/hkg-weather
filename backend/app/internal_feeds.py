@@ -20,12 +20,12 @@ from pydantic import (
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
-from .json_ingestion import (
-    JsonDatasetSpec,
-    JsonDatasetStorageError,
-    JsonDatasetUpstreamError,
-    ingest_json_dataset,
+from .ingestion import (
+    DatasetStorageError,
+    DatasetUpstreamError,
+    ValidatedPayload,
 )
+from .json_ingestion import JsonDatasetSpec, ingest_json_dataset
 from .official_feeds import (
     BatchIngestionResponse,
     DatasetIngestionStatus,
@@ -33,7 +33,6 @@ from .official_feeds import (
 )
 from .raw_ingestion import (
     RawDatasetSpec,
-    ValidatedRawPayload,
     ingest_raw_dataset,
 )
 from .storage import ArchivePolicy
@@ -43,12 +42,9 @@ HONG_KONG = ZoneInfo("Asia/Hong_Kong")
 OCF_ROOT = "https://maps.weather.gov.hk/ocf/dat"
 EARTH_WEATHER_ROOT = "https://maps.weather.gov.hk/wxviewer/data"
 RADAR_128_INDEX_URL = (
-    "https://www.hko.gov.hk/wxinfo/radars/R4_GIS_rad_128/"
-    "R4_GIS_server_Radar_128.kml"
+    "https://www.hko.gov.hk/wxinfo/radars/R4_GIS_rad_128/R4_GIS_server_Radar_128.kml"
 )
-TROPICAL_CYCLONE_INDEX_URL = (
-    "https://www.hko.gov.hk/wxinfo/currwx/tc_gis_list.js"
-)
+TROPICAL_CYCLONE_INDEX_URL = "https://www.hko.gov.hk/wxinfo/currwx/tc_gis_list.js"
 TROPICAL_CYCLONE_TRACK_ROOT = "https://www.hko.gov.hk/wxinfo/currwx/"
 
 OCF_STATION_FORECAST_DATASET = "ocf_station_forecast"
@@ -208,9 +204,7 @@ EARTH_WEATHER_MODELS = (
 )
 
 EARTH_WEATHER_RAINFALL_MODELS = tuple(
-    model
-    for model in EARTH_WEATHER_MODELS
-    if model.rainfall_interval_hours is not None
+    model for model in EARTH_WEATHER_MODELS if model.rainfall_interval_hours is not None
 )
 
 
@@ -247,7 +241,7 @@ def validate_png(
     *,
     source_updated_at: datetime,
     metadata: dict[str, object],
-) -> ValidatedRawPayload:
+) -> ValidatedPayload:
     if len(raw_payload) < 24 or raw_payload[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("payload is not a PNG")
     if raw_payload[12:16] != b"IHDR":
@@ -255,7 +249,7 @@ def validate_png(
     width, height = struct.unpack(">II", raw_payload[16:24])
     if width == 0 or height == 0:
         raise ValueError("PNG has invalid dimensions")
-    return ValidatedRawPayload(
+    return ValidatedPayload(
         source_updated_at=source_updated_at,
         metadata={
             **metadata,
@@ -289,13 +283,8 @@ def earth_weather_rainfall_spec(
     base_value = format_compact_utc(base_time)
     valid_value = format_compact_utc(valid_at)
     lead_value = f"{lead_hours:03d}"
-    filename = (
-        f"{model.model_id}_{base_value}_{valid_value}_f{lead_value}_sfc_RF.png"
-    )
-    url = (
-        f"{EARTH_WEATHER_ROOT}/weather/{model.model_id}/{base_value}/"
-        f"{filename}"
-    )
+    filename = f"{model.model_id}_{base_value}_{valid_value}_f{lead_value}_sfc_RF.png"
+    url = f"{EARTH_WEATHER_ROOT}/weather/{model.model_id}/{base_value}/{filename}"
     return RawDatasetSpec(
         dataset=EARTH_WEATHER_RAINFALL_DATASET,
         document_id=f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}",
@@ -396,7 +385,7 @@ def parse_tropical_cyclone_index(
 def validate_tropical_cyclone_track(
     raw_payload: bytes,
     cyclone: ActiveTropicalCyclone,
-) -> ValidatedRawPayload:
+) -> ValidatedPayload:
     try:
         root = ElementTree.fromstring(raw_payload)
     except ElementTree.ParseError as error:
@@ -410,7 +399,7 @@ def validate_tropical_cyclone_track(
         for element in root.iter()
     ):
         raise ValueError("tropical-cyclone track has no coordinates")
-    return ValidatedRawPayload(
+    return ValidatedPayload(
         source_updated_at=None,
         metadata={
             "storm_id": cyclone.storm_id,
@@ -501,7 +490,7 @@ async def _fetch_earth_weather_cycle(
         response.raise_for_status()
         return EarthWeatherCyclePayload.model_validate_json(response.content)
     except (httpx.HTTPError, ValueError) as error:
-        raise JsonDatasetUpstreamError(spec.dataset) from error
+        raise DatasetUpstreamError(spec.dataset) from error
 
 
 async def ingest_earth_weather_rainfall(
@@ -518,7 +507,7 @@ async def ingest_earth_weather_rainfall(
         try:
             base_time = earth_cycle_source_updated_at(cycle)
         except ValueError as error:
-            raise JsonDatasetUpstreamError(EARTH_WEATHER_CYCLE_DATASET) from error
+            raise DatasetUpstreamError(EARTH_WEATHER_CYCLE_DATASET) from error
         lead_hours = earth_rainfall_lead_hours(
             model,
             base_time,
@@ -544,7 +533,7 @@ async def ingest_radar_128(
         response.raise_for_status()
         overlay = parse_radar_index(response.content)
     except (httpx.HTTPError, UnicodeError, ValueError) as error:
-        raise JsonDatasetUpstreamError(RADAR_128_DATASET) from error
+        raise DatasetUpstreamError(RADAR_128_DATASET) from error
 
     spec = RawDatasetSpec(
         dataset=RADAR_128_DATASET,
@@ -577,7 +566,7 @@ async def ingest_tropical_cyclone_tracks(
         response.raise_for_status()
         cyclones = parse_tropical_cyclone_index(response.content)
     except (httpx.HTTPError, UnicodeError, ValueError) as error:
-        raise JsonDatasetUpstreamError(TROPICAL_CYCLONE_TRACK_DATASET) from error
+        raise DatasetUpstreamError(TROPICAL_CYCLONE_TRACK_DATASET) from error
 
     results = []
     for cyclone in cyclones:
@@ -587,9 +576,7 @@ async def ingest_tropical_cyclone_tracks(
         )
         spec = RawDatasetSpec(
             dataset=TROPICAL_CYCLONE_TRACK_DATASET,
-            document_id=(
-                f"{TROPICAL_CYCLONE_TRACK_DATASET}:{cyclone.storm_id}"
-            ),
+            document_id=(f"{TROPICAL_CYCLONE_TRACK_DATASET}:{cyclone.storm_id}"),
             url=url,
             validate=lambda raw_payload, cyclone=cyclone: (
                 validate_tropical_cyclone_track(raw_payload, cyclone)
@@ -609,5 +596,5 @@ async def ingest_tropical_cyclone_tracks(
             }
         )
     except PyMongoError as error:
-        raise JsonDatasetStorageError(TROPICAL_CYCLONE_TRACK_DATASET) from error
+        raise DatasetStorageError(TROPICAL_CYCLONE_TRACK_DATASET) from error
     return results

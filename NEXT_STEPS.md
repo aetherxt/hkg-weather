@@ -23,7 +23,7 @@ catalogue and operational commands are in [README.md](./README.md).
 - The deployed API passed the complete production smoke-test matrix: 27 of 27
   weather GET routes, CDN revalidation, immutable payloads, ETags, PNG checks
   and representative validation errors.
-- The backend passes 61 tests, Ruff and OpenAPI generation.
+- The backend passes 87 tests, Ruff and OpenAPI generation.
 - The Next.js application remains a frontend starting point rather than the
   finished weather interface.
 
@@ -36,18 +36,18 @@ Earth Weather, radar and tropical-cyclone feeds. Common ingestion services
 validate upstream responses, preserve original bytes, maintain latest
 documents and insert bounded archive records.
 
-Archive indexes now cover the public access patterns:
+Archive indexes cover the public access patterns and include document identity:
 
-- dataset and source-update time;
-- dataset and radar observation time;
-- dataset, model and valid time;
-- dataset and 30-minute archive slot;
-- dataset and content hash;
+- dataset, document ID and source-update time;
+- dataset, document ID and radar observation time;
+- dataset, document ID and model valid time;
+- dataset, document ID and 30-minute archive slot;
+- dataset, document ID and content hash;
 - TTL expiry time.
 
-Every successful dataset write through the shared JSON or raw ingestion
-service runs the idempotent index setup. No separate database migration command
-is currently required.
+Every successful dataset write through the shared ingestion core runs the
+idempotent index setup. The completed archive identity/index migration and its
+one-time tooling have been removed.
 
 ### 1.2 Public read API
 

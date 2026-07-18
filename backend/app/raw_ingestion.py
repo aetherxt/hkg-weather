@@ -1,24 +1,19 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from hashlib import sha256
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import httpx
 from pymongo.asynchronous.database import AsyncDatabase
-from pymongo.errors import PyMongoError
 
-from .json_ingestion import (
-    JsonDatasetStorageError,
-    JsonDatasetUpstreamError,
+from .ingestion import (
+    DatasetIngestionResult,
+    IngestionTarget,
+    ValidatedPayload,
+    ingest_dataset,
 )
-from .storage import ArchivePolicy, ensure_storage_indexes
+from .storage import ArchivePolicy
 
-
-@dataclass(frozen=True)
-class ValidatedRawPayload:
-    source_updated_at: datetime | None
-    archive_payload: bytes | None = None
-    metadata: dict[str, object] = field(default_factory=dict)
+ValidatedRawPayload = ValidatedPayload
 
 
 @dataclass(frozen=True)
@@ -36,26 +31,13 @@ class RawDatasetSpec:
         if self.archive_policy is ArchivePolicy.SLOT:
             if self.archive_interval is None:
                 raise ValueError("slot-addressed archives require an interval")
+            if self.archive_interval.total_seconds() <= 0:
+                raise ValueError("archive interval must be positive")
         elif self.archive_interval is not None:
             raise ValueError("content-addressed archives cannot define an interval")
 
 
-@dataclass(frozen=True)
-class RawIngestionResult:
-    changed: bool
-    source_updated_at: datetime | None
-    fetched_at: datetime
-
-
-def _archive_slot(fetched_at: datetime, interval: timedelta) -> datetime:
-    interval_seconds = int(interval.total_seconds())
-    if interval_seconds <= 0:
-        raise ValueError("archive interval must be positive")
-    timestamp = int(fetched_at.timestamp())
-    return datetime.fromtimestamp(
-        timestamp - (timestamp % interval_seconds),
-        tz=UTC,
-    )
+RawIngestionResult = DatasetIngestionResult
 
 
 async def ingest_raw_dataset(
@@ -65,96 +47,18 @@ async def ingest_raw_dataset(
     *,
     now: datetime | None = None,
 ) -> RawIngestionResult:
-    try:
-        response = await client.get(spec.url)
-        response.raise_for_status()
-        raw_payload = response.content
-        validated = spec.validate(raw_payload)
-    except (httpx.HTTPError, UnicodeError, ValueError) as error:
-        raise JsonDatasetUpstreamError(spec.dataset) from error
-
-    fetched_at = (now or datetime.now(UTC)).astimezone(UTC)
-    content_hash = sha256(raw_payload).hexdigest()
-    content_type = response.headers.get(
-        "content-type",
-        spec.default_content_type,
-    )
-    content_type = content_type.partition(";")[0].strip() or spec.default_content_type
-
-    try:
-        await ensure_storage_indexes(database)
-
-        latest = database["latest"]
-        previous = await latest.find_one(
-            {"_id": spec.document_id},
-            {"content_hash": 1},
-        )
-        changed = previous is None or previous.get("content_hash") != content_hash
-
-        document = {
-            "_id": spec.document_id,
-            "dataset": spec.dataset,
-            "source_url": spec.url,
-            "content_type": content_type,
-            "payload": raw_payload,
-            "fetched_at": fetched_at,
-            "source_updated_at": validated.source_updated_at,
-            "byte_size": len(raw_payload),
-            "content_hash": content_hash,
-        }
-        document.update(validated.metadata)
-        await latest.replace_one(
-            {"_id": spec.document_id},
-            document,
-            upsert=True,
-        )
-
-        if spec.archive_retention is not None:
-            archive_payload = validated.archive_payload or raw_payload
-            archive_hash = sha256(archive_payload).hexdigest()
-            archive_document = {
-                key: value for key, value in document.items() if key != "_id"
-            }
-            archive_document.update(
-                {
-                    "document_id": spec.document_id,
-                    "archive_policy": spec.archive_policy.value,
-                    "payload": archive_payload,
-                    "byte_size": len(archive_payload),
-                    "content_hash": archive_hash,
-                    "expires_at": fetched_at + spec.archive_retention,
-                }
-            )
-            archive_filter: dict[str, object]
-            if spec.archive_policy is ArchivePolicy.CONTENT:
-                archive_filter = {
-                    "dataset": spec.dataset,
-                    "document_id": spec.document_id,
-                    "archive_policy": ArchivePolicy.CONTENT.value,
-                    "content_hash": archive_hash,
-                }
-            else:
-                if spec.archive_interval is None:
-                    raise ValueError("slot-addressed archive interval is missing")
-                slot = _archive_slot(fetched_at, spec.archive_interval)
-                archive_document["archive_slot"] = slot
-                archive_filter = {
-                    "dataset": spec.dataset,
-                    "document_id": spec.document_id,
-                    "archive_policy": ArchivePolicy.SLOT.value,
-                    "archive_slot": slot,
-                }
-
-            await database["archive"].update_one(
-                archive_filter,
-                {"$setOnInsert": archive_document},
-                upsert=True,
-            )
-    except PyMongoError as error:
-        raise JsonDatasetStorageError(spec.dataset) from error
-
-    return RawIngestionResult(
-        changed=changed,
-        source_updated_at=validated.source_updated_at,
-        fetched_at=fetched_at,
+    return await ingest_dataset(
+        database,
+        client,
+        IngestionTarget(
+            dataset=spec.dataset,
+            document_id=spec.document_id,
+            url=spec.url,
+            default_content_type=spec.default_content_type,
+            archive_retention=spec.archive_retention,
+            archive_policy=spec.archive_policy,
+            archive_interval=spec.archive_interval,
+        ),
+        spec.validate,
+        now=now,
     )

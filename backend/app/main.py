@@ -3,10 +3,12 @@ import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from functools import partial
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -19,6 +21,11 @@ from .database import (
     close_database_clients,
     get_ingestion_database,
     get_read_database,
+)
+from .ingestion import (
+    DatasetIngestionResult,
+    DatasetStorageError,
+    DatasetUpstreamError,
 )
 from .internal_feeds import (
     EARTH_WEATHER_MODELS,
@@ -34,7 +41,6 @@ from .internal_feeds import (
     ingest_tropical_cyclone_tracks,
     load_ocf_stations,
 )
-from .json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 from .official_feeds import (
     CURRENT_WEATHER_DATASET,
     GRIDDED_RAINFALL_NOWCAST_DATASET,
@@ -42,12 +48,9 @@ from .official_feeds import (
     NINE_DAY_FORECAST_DATASET,
     STATION_RAINFALL_DATASET,
     BatchIngestionResponse,
-    CurrentWeatherNotFoundError,
-    CurrentWeatherReadResponse,
     DatasetIngestionResponse,
     DatasetIngestionStatus,
     SmartLamppostIngestionResponse,
-    StoredCurrentWeatherError,
     ingest_current_weather,
     ingest_gridded_rainfall,
     ingest_local_forecast,
@@ -58,7 +61,6 @@ from .official_feeds import (
     ingest_warnings,
     ingestion_status,
     load_smart_lamppost_devices,
-    read_current_weather,
 )
 from .storage_read import DatasetNotFoundError, StoredDataError
 from .upstream import get_http_client
@@ -78,6 +80,119 @@ class IngestionJobStatus(BaseModel):
 class AllIngestionResponse(BaseModel):
     ok: bool
     jobs: list[IngestionJobStatus]
+
+
+type IngestionJobRunner = Callable[
+    [AsyncDatabase, httpx.AsyncClient],
+    Awaitable[list[DatasetIngestionStatus]],
+]
+
+
+@dataclass(frozen=True)
+class IngestionJobDefinition:
+    name: str
+    run: IngestionJobRunner
+
+
+async def _single_dataset_job(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+    *,
+    dataset: str,
+    ingest: Callable[
+        [AsyncDatabase, httpx.AsyncClient],
+        Awaitable[DatasetIngestionResult],
+    ],
+) -> list[DatasetIngestionStatus]:
+    return [ingestion_status(dataset, await ingest(database, client))]
+
+
+async def _radar_job(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+) -> list[DatasetIngestionStatus]:
+    return [await ingest_radar_128(database, client)]
+
+
+async def _smart_lamppost_job(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+) -> list[DatasetIngestionStatus]:
+    return await ingest_smart_lampposts(
+        database,
+        client,
+        load_smart_lamppost_devices(),
+    )
+
+
+async def _ocf_station_job(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+) -> list[DatasetIngestionStatus]:
+    return await ingest_ocf_station_forecasts(
+        database,
+        client,
+        load_ocf_stations(),
+    )
+
+
+def ingestion_jobs() -> tuple[IngestionJobDefinition, ...]:
+    return (
+        IngestionJobDefinition(
+            "current_weather",
+            partial(
+                _single_dataset_job,
+                dataset=CURRENT_WEATHER_DATASET,
+                ingest=ingest_current_weather,
+            ),
+        ),
+        IngestionJobDefinition(
+            "local_forecast",
+            partial(
+                _single_dataset_job,
+                dataset=LOCAL_FORECAST_DATASET,
+                ingest=ingest_local_forecast,
+            ),
+        ),
+        IngestionJobDefinition(
+            "nine_day_forecast",
+            partial(
+                _single_dataset_job,
+                dataset=NINE_DAY_FORECAST_DATASET,
+                ingest=ingest_nine_day_forecast,
+            ),
+        ),
+        IngestionJobDefinition("warnings", ingest_warnings),
+        IngestionJobDefinition(
+            "station_rainfall",
+            partial(
+                _single_dataset_job,
+                dataset=STATION_RAINFALL_DATASET,
+                ingest=ingest_station_rainfall,
+            ),
+        ),
+        IngestionJobDefinition(
+            "gridded_rainfall_nowcast",
+            partial(
+                _single_dataset_job,
+                dataset=GRIDDED_RAINFALL_NOWCAST_DATASET,
+                ingest=ingest_gridded_rainfall,
+            ),
+        ),
+        IngestionJobDefinition("regional_weather", ingest_regional_weather),
+        IngestionJobDefinition("smart_lampposts", _smart_lamppost_job),
+        IngestionJobDefinition("ocf_station_forecasts", _ocf_station_job),
+        IngestionJobDefinition("earth_weather_cycles", ingest_earth_weather_cycles),
+        IngestionJobDefinition(
+            "earth_weather_rainfall",
+            ingest_earth_weather_rainfall,
+        ),
+        IngestionJobDefinition("radar_128", _radar_job),
+        IngestionJobDefinition(
+            "tropical_cyclones",
+            ingest_tropical_cyclone_tracks,
+        ),
+    )
 
 
 @asynccontextmanager
@@ -144,10 +259,10 @@ async def weather_storage_error(
     )
 
 
-@app.exception_handler(JsonDatasetUpstreamError)
-async def json_dataset_upstream_error(
+@app.exception_handler(DatasetUpstreamError)
+async def dataset_upstream_error(
     _: Request,
-    error: JsonDatasetUpstreamError,
+    error: DatasetUpstreamError,
 ) -> JSONResponse:
     logger.error(
         "%s upstream request failed: %s",
@@ -161,10 +276,10 @@ async def json_dataset_upstream_error(
     )
 
 
-@app.exception_handler(JsonDatasetStorageError)
-async def json_dataset_storage_error(
+@app.exception_handler(DatasetStorageError)
+async def dataset_storage_error(
     _: Request,
-    error: JsonDatasetStorageError,
+    error: DatasetStorageError,
 ) -> JSONResponse:
     logger.error(
         "%s database write failed: %s",
@@ -454,156 +569,50 @@ async def cron_ingest_all(
 ) -> AllIngestionResponse:
     response.headers["Cache-Control"] = "no-store"
 
-    async def current_weather_job() -> list[DatasetIngestionStatus]:
-        result = await ingest_current_weather(database, client)
-        return [ingestion_status(CURRENT_WEATHER_DATASET, result)]
-
-    async def local_forecast_job() -> list[DatasetIngestionStatus]:
-        result = await ingest_local_forecast(database, client)
-        return [ingestion_status(LOCAL_FORECAST_DATASET, result)]
-
-    async def nine_day_forecast_job() -> list[DatasetIngestionStatus]:
-        result = await ingest_nine_day_forecast(database, client)
-        return [ingestion_status(NINE_DAY_FORECAST_DATASET, result)]
-
-    async def station_rainfall_job() -> list[DatasetIngestionStatus]:
-        result = await ingest_station_rainfall(database, client)
-        return [ingestion_status(STATION_RAINFALL_DATASET, result)]
-
-    async def gridded_rainfall_job() -> list[DatasetIngestionStatus]:
-        result = await ingest_gridded_rainfall(database, client)
-        return [ingestion_status(GRIDDED_RAINFALL_NOWCAST_DATASET, result)]
-
-    async def smart_lamppost_job() -> list[DatasetIngestionStatus]:
-        return await ingest_smart_lampposts(
-            database,
-            client,
-            load_smart_lamppost_devices(),
-        )
-
-    async def ocf_station_job() -> list[DatasetIngestionStatus]:
-        return await ingest_ocf_station_forecasts(
-            database,
-            client,
-            load_ocf_stations(),
-        )
-
-    async def radar_job() -> list[DatasetIngestionStatus]:
-        return [await ingest_radar_128(database, client)]
-
-    jobs = (
-        ("current_weather", current_weather_job),
-        ("local_forecast", local_forecast_job),
-        ("nine_day_forecast", nine_day_forecast_job),
-        ("warnings", lambda: ingest_warnings(database, client)),
-        ("station_rainfall", station_rainfall_job),
-        ("gridded_rainfall_nowcast", gridded_rainfall_job),
-        ("regional_weather", lambda: ingest_regional_weather(database, client)),
-        ("smart_lampposts", smart_lamppost_job),
-        ("ocf_station_forecasts", ocf_station_job),
-        (
-            "earth_weather_cycles",
-            lambda: ingest_earth_weather_cycles(database, client),
-        ),
-        (
-            "earth_weather_rainfall",
-            lambda: ingest_earth_weather_rainfall(database, client),
-        ),
-        ("radar_128", radar_job),
-        (
-            "tropical_cyclones",
-            lambda: ingest_tropical_cyclone_tracks(database, client),
-        ),
-    )
-
     semaphore = asyncio.Semaphore(3)
 
-    async def run_named_job(
-        job_name: str,
-        run_job: Callable[[], Awaitable[list[DatasetIngestionStatus]]],
+    async def run_job(
+        job: IngestionJobDefinition,
     ) -> IngestionJobStatus:
         async with semaphore:
             try:
-                datasets = await run_job()
+                datasets = await job.run(database, client)
                 return IngestionJobStatus(
-                    job=job_name,
+                    job=job.name,
                     ok=True,
                     datasets=datasets,
                 )
-            except JsonDatasetUpstreamError:
+            except DatasetUpstreamError:
                 return IngestionJobStatus(
-                    job=job_name,
+                    job=job.name,
                     ok=False,
                     datasets=[],
                     detail="upstream weather data unavailable",
                 )
-            except JsonDatasetStorageError:
+            except DatasetStorageError:
                 return IngestionJobStatus(
-                    job=job_name,
+                    job=job.name,
                     ok=False,
                     datasets=[],
                     detail="weather storage unavailable",
                 )
             except Exception:
-                logger.exception("Unexpected %s batch-ingestion failure", job_name)
+                logger.exception("Unexpected %s batch-ingestion failure", job.name)
                 return IngestionJobStatus(
-                    job=job_name,
+                    job=job.name,
                     ok=False,
                     datasets=[],
                     detail="unexpected ingestion failure",
                 )
 
     job_results = list(
-        await asyncio.gather(
-            *(run_named_job(job_name, run_job) for job_name, run_job in jobs)
-        )
+        await asyncio.gather(*(run_job(job) for job in ingestion_jobs()))
     )
 
     all_ok = all(result.ok for result in job_results)
     if not all_ok:
         response.status_code = status.HTTP_502_BAD_GATEWAY
     return AllIngestionResponse(ok=all_ok, jobs=job_results)
-
-
-@app.get(
-    "/api/weather/current",
-    response_model=CurrentWeatherReadResponse,
-)
-async def get_current_weather(
-    response: Response,
-    database: Annotated[AsyncDatabase, Depends(get_read_database)],
-) -> CurrentWeatherReadResponse:
-    try:
-        current_weather = await read_current_weather(database)
-    except CurrentWeatherNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Current weather not found",
-            headers={"Cache-Control": "no-store"},
-        ) from error
-    except StoredCurrentWeatherError as error:
-        logger.error("Stored current-weather data is invalid")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Weather data unavailable",
-            headers={"Cache-Control": "no-store"},
-        ) from error
-    except PyMongoError as error:
-        logger.error(
-            "Current-weather database read failed: %s",
-            type(error).__name__,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Weather storage unavailable",
-            headers={"Cache-Control": "no-store"},
-        ) from error
-
-    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
-    response.headers["Vercel-CDN-Cache-Control"] = (
-        "max-age=300, stale-while-revalidate=600"
-    )
-    return current_weather
 
 
 app.include_router(weather_reader_router)
