@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
-from .storage import ensure_storage_indexes
+from .storage import ArchivePolicy, ensure_storage_indexes
 
 
 @dataclass(frozen=True)
@@ -92,12 +92,18 @@ async def ingest_json_dataset[PayloadModel: BaseModel](
             archive_document = {
                 key: value for key, value in document.items() if key != "_id"
             }
-            archive_document["expires_at"] = (
-                fetched_at + spec.archive_retention
+            archive_document.update(
+                {
+                    "document_id": spec.document_id,
+                    "archive_policy": ArchivePolicy.CONTENT.value,
+                    "expires_at": fetched_at + spec.archive_retention,
+                }
             )
             await database["archive"].update_one(
                 {
                     "dataset": spec.dataset,
+                    "document_id": spec.document_id,
+                    "archive_policy": ArchivePolicy.CONTENT.value,
                     "content_hash": content_hash,
                 },
                 {"$setOnInsert": archive_document},

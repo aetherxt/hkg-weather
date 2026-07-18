@@ -44,6 +44,17 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 - PyMongo creates separate lazy, reusable asynchronous clients for the ingestion and reader users.
 - JSON datasets use a shared, specification-driven ingestion service for upstream fetching, Pydantic validation, raw-byte hashing, latest/archive writes, retention and API error translation.
 - Each JSON source supplies only its dataset identifiers, URL, payload model, source-update-time extractor and archive-retention policy.
+- Raw CSV, KML and PNG datasets use a parallel specification-driven ingestion
+  service that preserves original bytes and validated dataset metadata.
+- `storage_read.py` provides reusable latest-document, stored-metadata, JSON,
+  CSV and binary readers.
+- `weather_reads.py` owns the typed public weather router, response models,
+  public field normalization, grid parsing, GeoJSON conversion and bounded
+  archive access.
+- The implemented public API contains 27 `GET /api/weather/*` route patterns:
+  13 latest-data routes, six map-data routes and eight archive routes.
+- Public readers decode BSON binary payloads and return camelCase application
+  contracts; frontend code never receives MongoDB field names or BSON values.
 - `/api/health` is the public application health endpoint.
 - `/api/health/database` checks both MongoDB users during local development and returns 404 in Vercel preview and production deployments.
 - MongoDB Atlas Network Access must permit connections from the deployed Vercel service while database authentication remains restricted by the ingestion and reader roles.
@@ -57,6 +68,29 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 - Public responses use `stale-while-revalidate` so the CDN can serve a cached response while refreshing it from FastAPI and MongoDB.
 - Authenticated `POST /api/cron/*`, health, error and user-specific responses are never cached.
 - Public cacheable requests must not include authorization headers or cookies, and non-streaming responses must remain below Vercel's 10 MB CDN response limit.
+
+### 1.4 Public read API contract
+
+- JSON responses use a `data` and `meta` envelope. Metadata includes `dataset`,
+  `sourceUpdatedAt` and `fetchedAt`; list responses also include `count`.
+- Supported regional CSV products are parsed into typed station observations.
+- Rainfall-nowcast grids expose update and valid times, geographic bounds,
+  width, height and row-major numerical values ordered north-to-south and
+  west-to-east.
+- Radar and Earth Weather image endpoints return native `image/png` bytes.
+- Tropical-cyclone KML coordinates are converted to GeoJSON.
+- Configured lamppost and OCF station information is joined with labels and
+  coordinates before it reaches the frontend.
+- Valid resources without stored data return `404`; invalid identifiers,
+  timestamps and ranges return `422`; unavailable storage or malformed stored
+  payloads return `503`.
+- Errors use `Cache-Control: no-store`.
+- Timestamp-addressed archive payloads use content ETags and one-year immutable
+  caching. Conditional image reads support `304 Not Modified`.
+- Archive queries require a maximum three-day range and return no more than 512
+  stored documents.
+- The deployed API has passed a complete 27-route production smoke test,
+  including CDN hits, PNG validation, ETag revalidation and archive access.
 
 ## 2. Data sources
 
@@ -155,7 +189,17 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - Insert an archive document only when its upstream timestamp or content hash changes.
 - Datasets marked `Latest only` replace their current document and never write to the archive collection.
 - No archived API record is retained for more than three days.
-- Use MongoDB TTL indexes and proactively delete expired documents before archive insertion.
+- Store `document_id` on every archive record so stations, devices, models and
+  cyclones can be selected without decoding unrelated payloads.
+- Mark each archive record with an explicit `archive_policy`: content-addressed
+  records are unique by dataset, document identity and content hash;
+  slot-addressed records are unique by dataset, document identity and archive
+  slot. Separate partial unique indexes enforce the two policies.
+- Use a MongoDB TTL index to remove expired archive documents.
+- Maintain query indexes beginning with dataset and document identity for
+  source-update time, radar observation time and model valid time.
+- Store the first two nowcast valid times as archive metadata so an archive
+  index can be returned without reading every numerical grid payload.
 - Do not store generated map tiles, browser-rendered weather layers or OCF-rendered fallback PNGs.
 - Retain static station, device and location lookup data as latest-only documents and replace them when their content changes.
 
@@ -164,7 +208,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Data | Stored representation | Capture policy | Retention |
 |---|---|---|---|
 | Past-hour station rainfall | Raw JSON | Save each new observation time; also maintain latest | 3 days |
-| Gridded two-hour rainfall nowcast | Raw complete CSV for latest; uncompressed BSON binary containing the first two 30-minute grids for archive | Refresh latest when HKO updates; archive every 30 minutes | Latest plus 3-day archive |
+| Gridded two-hour rainfall nowcast | Raw complete CSV for latest; uncompressed BSON binary containing the first two 30-minute grids plus their valid-time metadata for archive | Refresh latest when HKO updates; archive every 30 minutes | Latest plus 3-day archive |
 | Current weather report | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Local weather forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Official nine-day forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
@@ -173,7 +217,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Special weather tips | Raw JSON | Replace latest on each changed state, including transition to no tips | Latest only |
 | Smart-lamppost observations | Raw JSON for the devices selected in `backend/app/data/smart_lamppost_devices.json`: `50148:01` (Central), `27357:01` (Wan Chai), `AB3301:01` (Tsim Sha Tsui/Jordan) and `DF3644:01` (Kowloon Bay/Choi Hung) | Save each new measurement time; also maintain latest | 3 days |
 | Regional one-minute mean temperature | Raw CSV | Save each new source time; also maintain latest | 3 days |
-| Regional wind, speed and maximum gust | Raw CSV | Save each new source time; also maintain latest | 3 days |
+| Regional wind, speed and maximum gust | Raw CSV; recognize HKO's observed six-field calm-row anomaly during validation and normalize it in the public adapter while preserving original bytes | Save each new source time; also maintain latest | 3 days |
 | OCF nine-day station forecasts | Raw JSON response per configured station | Save each new model time; also maintain latest per station | 3 days |
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
@@ -196,7 +240,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 ## 4. Project file structure
 
 ```text
-better-weather/
+hkg-weather/
 ├── .env.example                         # Environment-variable template
 ├── .gitignore                           # Repository-wide ignore rules
 ├── HKO_DATA_API_REFERENCE.md            # Upstream API and response reference
@@ -216,7 +260,9 @@ better-weather/
 │   │   ├── official_feeds.py            # Documented HKO feed definitions
 │   │   ├── raw_ingestion.py             # CSV, XML, image and other raw ingestion
 │   │   ├── storage.py                   # MongoDB indexes and archive policies
+│   │   ├── storage_read.py              # Shared JSON, CSV, binary and metadata readers
 │   │   ├── upstream.py                  # Shared upstream HTTP client
+│   │   ├── weather_reads.py             # Typed public GET routes and normalizers
 │   │   └── data/
 │   │       ├── ocf_stations.json        # All 16 stored OCF stations
 │   │       └── smart_lamppost_devices.json
@@ -224,7 +270,8 @@ better-weather/
 │   ├── scripts/
 │   │   ├── __init__.py                  # Script package
 │   │   ├── check_database.py            # Local MongoDB connectivity check
-│   │   └── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
+│   │   ├── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
+│   │   └── migrate_archive_identity.py  # One-time archive/index migration
 │   ├── tests/
 │   │   ├── test_auth.py
 │   │   ├── test_configure_cron_jobs.py
@@ -235,11 +282,12 @@ better-weather/
 │   │   ├── test_health.py
 │   │   ├── test_internal_feeds.py
 │   │   ├── test_json_ingestion.py
+│   │   ├── test_migrate_archive_identity.py
 │   │   ├── test_official_feed_routes.py
 │   │   ├── test_official_feeds.py
 │   │   ├── test_raw_ingestion.py
-│   │   └── test_storage.py
-│   ├── pyproject.toml                   # Python project metadata
+│   │   ├── test_storage.py
+│   │   └── test_weather_read_routes.py
 │   ├── pytest.ini                       # Pytest configuration
 │   ├── requirements.txt                 # Production dependencies
 │   ├── requirements-dev.txt             # Development and test dependencies

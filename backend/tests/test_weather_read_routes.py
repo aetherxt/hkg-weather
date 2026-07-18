@@ -308,3 +308,50 @@ def test_nowcast_history_uses_metadata_only_and_supports_legacy_documents() -> N
         "archive_valid_times": 1,
     }
     assert "payload" not in projection
+
+
+def test_station_history_queries_only_the_requested_document_id() -> None:
+    archived = json_document(
+        {
+            "LastModified": 20260718121202,
+            "StationCode": "HKO",
+            "Latitude": 22.302,
+            "Longitude": 114.174,
+            "ModelTime": 2026071800,
+            "DailyForecast": [
+                {
+                    "ForecastDate": "20260719",
+                    "ForecastChanceOfRain": "60%",
+                }
+            ],
+            "HourlyWeatherForecast": [
+                {
+                    "ForecastHour": "2026071900",
+                    "ForecastTemperature": 28.0,
+                }
+            ],
+        },
+        source_updated_at=datetime(2026, 7, 18, 4, 12, 2, tzinfo=UTC),
+    )
+    cursor = MagicMock()
+    cursor.sort.return_value = cursor
+    cursor.limit.return_value = cursor
+    cursor.to_list = AsyncMock(return_value=[archived])
+    archive = MagicMock()
+    archive.find.return_value = cursor
+    database = MagicMock()
+    database.__getitem__.return_value = archive
+
+    response = request(
+        (
+            "/api/weather/history/stations/HKO/forecast?"
+            "from=2026-07-18T04:00:00Z&to=2026-07-18T05:00:00Z"
+        ),
+        database,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["meta"]["dataset"] == "ocf_station_forecast:HKO"
+    query = archive.find.call_args.args[0]
+    assert query["dataset"] == "ocf_station_forecast"
+    assert query["document_id"] == "ocf_station_forecast:HKO"

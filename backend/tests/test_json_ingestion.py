@@ -62,4 +62,13 @@ def test_json_ingestion_uses_dataset_specification() -> None:
     assert latest_document["dataset"] == "dummy_dataset"
     assert latest_document["source_url"] == DUMMY_URL
     archive_document = archive.update_one.await_args.args[1]["$setOnInsert"]
+    archive_filter = archive.update_one.await_args.args[0]
+    assert archive_filter == {
+        "dataset": "dummy_dataset",
+        "document_id": "dummy_latest",
+        "archive_policy": "content",
+        "content_hash": archive_document["content_hash"],
+    }
+    assert archive_document["document_id"] == "dummy_latest"
+    assert archive_document["archive_policy"] == "content"
     assert archive_document["expires_at"] == fetched_at + retention

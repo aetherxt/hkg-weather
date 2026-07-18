@@ -1,6 +1,6 @@
 # Hong Kong Observatory Data and Model Feed Reference
 
-Last reviewed: 17 July 2026
+Last reviewed: 18 July 2026
 Primary catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 
 ## 1. Purpose and scope
@@ -749,6 +749,19 @@ Parsing rules:
 - unavailable values are represented by `N/A`;
 - speed and gust should only be converted to numbers after checking for blank and `N/A` values.
 
+Observed upstream anomaly: the live CSV has occasionally emitted a six-field
+calm row despite its five-column header, for example:
+
+```csv
+202607181330,Lamma Island,Calm,Calm,0,
+```
+
+The application adapter accepts only this narrow pattern: both middle values
+must be `Calm` and the sixth field must be empty. It normalizes the public
+reading to direction `Calm`, mean speed `null` and the numeric gust from the
+fifth field. Other unexpected column counts remain validation errors so a real
+upstream schema change is not silently accepted.
+
 ## 14. HKO Earth Weather prediction models
 
 Viewer: <https://maps.weather.gov.hk/wxviewer/index.html?lang=en>
@@ -1288,7 +1301,101 @@ XML alone.
 7. **Monitor undocumented viewer integrations.** Add response-content checks so an HTML error page is not accepted as a PNG, KML, JSON or OCF `.xml` response.
 8. **Review data terms and attribution.** Model-provider licences differ, particularly when redistributing model output.
 
-## 19. Sources
+## 19. Application read, archive and storage adapter
+
+This section records the implemented HKG Weather application boundary. It is
+not part of HKO's upstream API contract; the earlier sections remain the source
+format reference.
+
+### 19.1 Public read boundary
+
+The application exposes 27 supported `GET /api/weather/*` route patterns: 13
+latest-data routes, six map-data routes and eight archive routes. The complete
+route catalogue is maintained in [README.md](./README.md).
+
+- All public database reads use `MONGODB_READ_URI`.
+- There is no generic MongoDB query route.
+- JSON and CSV responses use a normalized `data` and `meta` envelope with
+  `dataset`, `sourceUpdatedAt` and `fetchedAt`.
+- List responses add `count`.
+- Public JSON uses camelCase even when an upstream or stored field does not.
+- Native PNG endpoints return `image/png`, content length and an ETag rather
+  than Base64 JSON.
+- Tropical-cyclone KML is converted to GeoJSON for MapLibre.
+- Valid resources without data return `404`, invalid supported parameters
+  return `422`, and unavailable or malformed storage returns `503`.
+- Errors use `Cache-Control: no-store`.
+
+Read-side implementation ownership is intentionally separate from ingestion:
+
+| File | Responsibility |
+|---|---|
+| `backend/app/storage_read.py` | Stored metadata validation and reusable latest JSON, CSV and binary readers |
+| `backend/app/weather_reads.py` | Typed public routes, response models, normalization, grid parsing, GeoJSON and bounded archive reads |
+| `backend/app/official_feeds.py` | Official HKO schemas, validation and dataset-specific upstream anomalies |
+| `backend/app/internal_feeds.py` | OCF, Earth Weather, radar and tropical-cyclone schemas and ingestion adapters |
+| `backend/app/storage.py` | Reproducible MongoDB archive indexes and expiry policy |
+
+### 19.2 MongoDB representation and retention
+
+Upstream JSON, CSV, XML/KML and PNG bodies are stored as BSON binary values;
+they are never Base64-encoded. Common document metadata includes, where
+applicable:
+
+```text
+dataset, source_url, content_type, payload, fetched_at, source_updated_at,
+byte_size, content_hash, expires_at, archive_slot, observed_at, base_time,
+valid_at, lead_hours, archive_valid_times, model, bounds, raster_width,
+raster_height
+```
+
+The `latest` collection maintains one replaceable document per public live
+product. The `archive` collection retains selected changed or interval-slotted
+records for three days. A TTL index removes expired records.
+
+Archive indexes cover the public query patterns:
+
+| Index keys | Use |
+|---|---|
+| `dataset`, `content_hash` | Deduplicate content-addressed archive records |
+| `dataset`, `archive_slot` | Enforce one interval archive per dataset and slot |
+| `dataset`, `source_updated_at` | Station rainfall, OCF and nowcast issue-time ranges |
+| `dataset`, `observed_at` | Radar observation-time ranges and timestamp reads |
+| `dataset`, `model`, `valid_at` | Earth Weather model ranges and timestamp reads |
+| `expires_at` | Three-day TTL expiry |
+
+Archive index requests accept at most a three-day range and 512 stored
+documents. Index responses contain timestamps and stable URLs; numerical grids
+and images are fetched only after the caller selects a frame.
+
+### 19.3 Gridded-nowcast storage and public ordering
+
+- The latest document keeps the complete validated upstream CSV.
+- Each 30-minute archive slot keeps only the first two forecast periods,
+  covering the following 30 and 60 minutes.
+- New archive documents also store those two valid times in
+  `archive_valid_times` metadata.
+- The archive-index GET route projects timestamp metadata only. It does not
+  load every archived numerical grid.
+- For archive documents written before `archive_valid_times` was introduced,
+  the adapter derives the first two valid times as issue time plus 30 and 60
+  minutes.
+- A selected frame is returned as a rectangular numerical grid with bounds,
+  width, height and row-major values ordered north-to-south and west-to-east.
+
+### 19.4 Binary and immutable archive responses
+
+Radar and Earth Weather PNGs remain in their original stored form. Latest image
+URLs use short CDN caching because their content is replaced. Timestamped
+archive grids and images use content-specific URLs, one-year immutable caching
+and ETags. Conditional image requests support `304 Not Modified`.
+
+The Earth Weather rainfall PNG's internal numerical/geographic representation
+has not yet been treated as a decoded quantitative grid. It remains an encoded
+source raster until its projection, crop, colour encoding and bounds are
+verified.
+
+## 20. Sources
 
 - HKO Open Data catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 - HKO Open Data API documentation: <https://data.weather.gov.hk/weatherAPI/doc/HKO_Open_Data_API_Documentation.pdf>

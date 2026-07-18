@@ -37,6 +37,7 @@ from .raw_ingestion import (
     ValidatedRawPayload,
     ingest_raw_dataset,
 )
+from .storage import ArchivePolicy
 
 ARCHIVE_RETENTION = timedelta(days=3)
 HONG_KONG = ZoneInfo("Asia/Hong_Kong")
@@ -552,6 +553,7 @@ async def ingest_radar_128(
         ),
         default_content_type="image/png",
         archive_retention=ARCHIVE_RETENTION,
+        archive_policy=ArchivePolicy.SLOT,
         archive_interval=timedelta(minutes=30),
     )
     result = await ingest_raw_dataset(database, client, spec)

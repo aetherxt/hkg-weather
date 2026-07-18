@@ -11,7 +11,7 @@ from .json_ingestion import (
     JsonDatasetStorageError,
     JsonDatasetUpstreamError,
 )
-from .storage import ensure_storage_indexes
+from .storage import ArchivePolicy, ensure_storage_indexes
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,15 @@ class RawDatasetSpec:
     validate: Callable[[bytes], ValidatedRawPayload]
     default_content_type: str
     archive_retention: timedelta | None = timedelta(days=3)
+    archive_policy: ArchivePolicy = ArchivePolicy.CONTENT
     archive_interval: timedelta | None = None
+
+    def __post_init__(self) -> None:
+        if self.archive_policy is ArchivePolicy.SLOT:
+            if self.archive_interval is None:
+                raise ValueError("slot-addressed archives require an interval")
+        elif self.archive_interval is not None:
+            raise ValueError("content-addressed archives cannot define an interval")
 
 
 @dataclass(frozen=True)
@@ -109,6 +117,8 @@ async def ingest_raw_dataset(
             }
             archive_document.update(
                 {
+                    "document_id": spec.document_id,
+                    "archive_policy": spec.archive_policy.value,
                     "payload": archive_payload,
                     "byte_size": len(archive_payload),
                     "content_hash": archive_hash,
@@ -116,16 +126,22 @@ async def ingest_raw_dataset(
                 }
             )
             archive_filter: dict[str, object]
-            if spec.archive_interval is None:
+            if spec.archive_policy is ArchivePolicy.CONTENT:
                 archive_filter = {
                     "dataset": spec.dataset,
+                    "document_id": spec.document_id,
+                    "archive_policy": ArchivePolicy.CONTENT.value,
                     "content_hash": archive_hash,
                 }
             else:
+                if spec.archive_interval is None:
+                    raise ValueError("slot-addressed archive interval is missing")
                 slot = _archive_slot(fetched_at, spec.archive_interval)
                 archive_document["archive_slot"] = slot
                 archive_filter = {
                     "dataset": spec.dataset,
+                    "document_id": spec.document_id,
+                    "archive_policy": ArchivePolicy.SLOT.value,
                     "archive_slot": slot,
                 }
 

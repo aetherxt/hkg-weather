@@ -22,6 +22,7 @@ from .raw_ingestion import (
     ValidatedRawPayload,
     ingest_raw_dataset,
 )
+from .storage import ArchivePolicy
 from .storage_read import (
     DatasetNotFoundError,
     StoredDataError,
@@ -348,6 +349,7 @@ GRIDDED_RAINFALL_SPEC = RawDatasetSpec(
     validate=validate_gridded_rainfall_csv,
     default_content_type="text/csv",
     archive_retention=ARCHIVE_RETENTION,
+    archive_policy=ArchivePolicy.SLOT,
     archive_interval=timedelta(minutes=30),
 )
 

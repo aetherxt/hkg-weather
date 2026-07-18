@@ -12,6 +12,7 @@ from app.official_feeds import (
     validate_temperature_csv,
     validate_wind_csv,
 )
+from app.storage import ArchivePolicy
 
 
 def test_official_json_specs_extract_source_times_and_retention() -> None:
@@ -57,6 +58,7 @@ def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
         datetime.fromisoformat("2026-07-17T19:00:00+08:00"),
     ]
     assert GRIDDED_RAINFALL_SPEC.archive_interval is not None
+    assert GRIDDED_RAINFALL_SPEC.archive_policy is ArchivePolicy.SLOT
 
 
 def test_regional_temperature_csv_extracts_hong_kong_time() -> None:

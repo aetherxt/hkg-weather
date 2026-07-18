@@ -4,184 +4,141 @@ Last updated: 18 July 2026
 
 Architecture and storage decisions remain in
 [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md). Upstream formats remain in
-[HKO_DATA_API_REFERENCE.md](./HKO_DATA_API_REFERENCE.md).
+[HKO_DATA_API_REFERENCE.md](./HKO_DATA_API_REFERENCE.md). The complete route
+catalogue and operational commands are in [README.md](./README.md).
 
 ## Current state
 
-- All planned ingestion groups have protected `POST /api/cron/*` routes.
-- cron-job.org is configured and can populate MongoDB continuously.
-- MongoDB keeps latest documents and the planned three-day archives.
-- `GET /api/weather/current` is the only public weather-data reader currently
-  implemented.
-- The Next.js application is still a frontend starting point rather than the
+- All planned ingestion groups have protected `POST /api/cron/*` routes and
+  cron-job.org can populate MongoDB continuously.
+- MongoDB maintains replaceable latest documents and the planned rolling
+  three-day archives with TTL expiry.
+- The public read API is complete: 27 typed `GET /api/weather/*` route patterns
+  cover latest data, map data and archives.
+- Every public database read uses `MONGODB_READ_URI`; ingestion credentials are
+  confined to protected cron routes.
+- Stored JSON, CSV, PNG and KML payloads are decoded or normalized by the
+  backend. The frontend does not need MongoDB field names, BSON handling or HKO
+  parsing logic.
+- The deployed API passed the complete production smoke-test matrix: 27 of 27
+  weather GET routes, CDN revalidation, immutable payloads, ETags, PNG checks
+  and representative validation errors.
+- The backend passes 61 tests, Ruff and OpenAPI generation.
+- The Next.js application remains a frontend starting point rather than the
   finished weather interface.
 
-## 1. Next step: implement public GET endpoints
+## 1. Completed backend foundation
 
-The immediate goal is to expose the data already stored in MongoDB through a
-stable, read-only API. The frontend should never connect directly to MongoDB or
-know about BSON binary storage.
+### 1.1 Ingestion and storage
 
-### 1.1 Reader API rules
+The application stores official HKO feeds plus the selected internal OCF,
+Earth Weather, radar and tropical-cyclone feeds. Common ingestion services
+validate upstream responses, preserve original bytes, maintain latest
+documents and insert bounded archive records.
 
-- Every public route must use `MONGODB_READ_URI`, never the ingestion user.
-- Only explicitly supported datasets and query parameters may be read; do not
-  expose a generic MongoDB query endpoint.
-- Decode stored JSON before returning it.
-- Parse stored CSV into typed response objects where the frontend needs
-  individual values.
-- Return PNG data as its native `image/png` response rather than Base64 inside
-  JSON.
-- Convert tropical-cyclone KML coordinates to GeoJSON for MapLibre.
-- Use camelCase in public JSON, regardless of MongoDB field naming.
-- Include `dataset`, `sourceUpdatedAt` and `fetchedAt` in response metadata.
-- Return `404` when a valid dataset or station has no stored document, `422`
-  for invalid parameters, and `503` when MongoDB is unavailable.
-- Successful latest-data responses use the CDN policy from the implementation
-  plan. Errors use `Cache-Control: no-store`.
-- Timestamp-addressed archive payloads should use an ETag and immutable caching
-  because their contents cannot change. Latest image URLs use a short CDN
-  lifetime because their contents are replaced.
-- Apply bounded archive queries, with a maximum three-day range and a maximum
-  result count, so a public request cannot scan the database without limits.
+Archive indexes now cover the public access patterns:
 
-### 1.2 Standard response shape
+- dataset and source-update time;
+- dataset and radar observation time;
+- dataset, model and valid time;
+- dataset and 30-minute archive slot;
+- dataset and content hash;
+- TTL expiry time.
 
-Latest JSON and parsed CSV endpoints should normally return:
+Every successful dataset write through the shared JSON or raw ingestion
+service runs the idempotent index setup. No separate database migration command
+is currently required.
 
-```json
-{
-  "data": {},
-  "meta": {
-    "dataset": "current_weather",
-    "sourceUpdatedAt": "2026-07-18T10:02:00Z",
-    "fetchedAt": "2026-07-18T10:10:00Z"
-  }
-}
-```
+### 1.2 Public read API
 
-List endpoints use an array for `data` and may add `count` to `meta`. Binary
-image endpoints return bytes directly and put identifiers, timestamps, bounds
-and ETag information in HTTP headers or in a separate JSON index endpoint.
+| Group | Routes | Delivered behavior |
+|---|---:|---|
+| Latest weather data | 13 | Forecasts, warnings, observations, lampposts, OCF stations, model cycles and active tropical cyclones |
+| Map data | 6 | Numerical rainfall grids, radar metadata/PNG and Earth Weather rainfall metadata/PNG |
+| Three-day archives | 8 | Bounded indexes and timestamp-addressed rainfall, radar, OCF and model payloads |
 
-### 1.3 Latest-data endpoints
+The public API provides:
 
-| Endpoint | Data returned | Notes |
-|---|---|---|
-| `GET /api/weather/current` | Current weather report | Already implemented; use it as the reader pattern. |
-| `GET /api/weather/forecast/local` | Local forecast | Decoded HKO JSON. |
-| `GET /api/weather/forecast/nine-day` | Official nine-day forecast | Decoded HKO JSON. |
-| `GET /api/weather/warnings` | Warning summary, warning details and special weather tips | Combine the three latest-only documents into one response. Missing inactive warning documents should be represented by empty data, not an application error. |
-| `GET /api/weather/rainfall/stations` | Past-hour automatic-station rainfall | Decoded HKO JSON. |
-| `GET /api/weather/regional/temperature` | Latest one-minute station temperatures | Parse the stored CSV into station/time/value objects. |
-| `GET /api/weather/regional/wind` | Latest ten-minute wind, speed and maximum gust | Parse the stored CSV into station/time/value objects. |
-| `GET /api/weather/lampposts` | Latest readings for all configured lampposts | Join stored payloads with labels and coordinates from the JSON configuration. |
-| `GET /api/weather/lampposts/{lamppostId}/{deviceId}` | Latest reading for one configured lamppost device | Reject devices outside the configuration. |
-| `GET /api/weather/stations` | The 16 configured OCF stations | Return station codes and labels from configuration. |
-| `GET /api/weather/stations/{stationCode}/forecast` | One station's complete OCF nine-day forecast | Validate the station against `ocf_stations.json`. |
-| `GET /api/weather/models` | Earth Weather model labels and current cycles | Combine model configuration with the stored latest cycle metadata. |
-| `GET /api/weather/tropical-cyclones` | All currently active tracks | Return storm metadata and GeoJSON coordinates; an empty list is a successful response. |
+- a consistent `data` and `meta` JSON envelope;
+- `dataset`, `sourceUpdatedAt` and `fetchedAt` metadata;
+- `count` on list responses;
+- camelCase public fields;
+- typed regional temperature, wind and gust readings;
+- configured labels and coordinates for lamppost and OCF station data;
+- north-to-south, west-to-east numerical rainfall grids;
+- tropical-cyclone KML converted to GeoJSON;
+- native `image/png` responses without Base64 encoding;
+- stable URLs for large and timestamp-addressed payloads.
 
-### 1.4 Map-data endpoints
+Only configured datasets, stations, devices, models and bounded query ranges
+are accepted. The API exposes no generic MongoDB query mechanism.
 
-| Endpoint | Data returned | Notes |
-|---|---|---|
-| `GET /api/weather/rainfall/nowcast` | Latest rainfall-grid index and valid times | Return dimensions, bounds, update time and URLs/identifiers for each forecast frame. |
-| `GET /api/weather/rainfall/nowcast/{validTime}` | One numerical rainfall grid | Return a compact numerical representation suitable for a Web Worker, Canvas and WebGL. Do not render or store map tiles. |
-| `GET /api/weather/radar` | Latest radar-frame metadata | Return observation time, bounds and a stable image URL. |
-| `GET /api/weather/radar/image` | Latest radar PNG | Return native PNG bytes. |
-| `GET /api/weather/models/{modelId}/rainfall` | Latest model-rainfall metadata | Return model cycle, lead time, valid time, raster dimensions and image URL. |
-| `GET /api/weather/models/{modelId}/rainfall/image` | Latest encoded model-rainfall PNG | Return the original stored PNG bytes. Decoding its internal numerical/geographic representation remains separate work. |
+### 1.3 Errors and caching
 
-For the rainfall-nowcast grid, begin with a straightforward JSON contract:
+- `404` means a supported resource has no stored document.
+- `422` means a station, device, model, timestamp or archive range is invalid.
+- `503` means MongoDB is unavailable or a stored payload cannot be safely
+  decoded.
+- All error responses use `Cache-Control: no-store`.
+- Latest responses use short Vercel CDN lifetimes with stale revalidation.
+- Local and nine-day forecasts use a longer ten-minute CDN lifetime.
+- Timestamp-addressed grids and images use one-year immutable caching and
+  ETags.
+- Conditional image requests support `304 Not Modified`.
+- Archive ranges are limited to three days and 512 stored documents.
 
-```json
-{
-  "data": {
-    "updatedAt": "2026-07-18T10:00:00+08:00",
-    "validAt": "2026-07-18T10:30:00+08:00",
-    "bounds": {"north": 0, "south": 0, "east": 0, "west": 0},
-    "width": 0,
-    "height": 0,
-    "values": []
-  },
-  "meta": {}
-}
-```
+### 1.4 Production issues resolved
 
-The final bounds, grid ordering and missing-value convention must be derived
-from the HKO CSV and covered by tests before the frontend depends on them. If
-JSON size or parsing becomes a measured bottleneck, replace only the `values`
-transport with a compact binary format while preserving the endpoint's
-metadata contract.
+Two problems were found during the first deployed smoke test and fixed:
 
-### 1.5 Archive endpoints
+1. HKO emits anomalous six-field calm-wind CSV rows such as
+   `Lamma Island,Calm,Calm,0,`. The backend now normalizes only this known
+   pattern to direction `Calm`, speed `null` and the supplied numeric gust,
+   while continuing to reject unrelated schema changes.
+2. The nowcast archive index originally loaded and sorted all archived grid
+   payloads. It now reads timestamp metadata only, uses an indexed query and
+   supports older archive documents by deriving their first 30- and 60-minute
+   valid times. Individual numerical grids are still fetched only after a
+   frame is selected.
 
-Archive access is needed for forecast-versus-observation comparison. Implement
-it after the corresponding latest endpoint is stable.
+The final deployed verification confirmed:
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/weather/history/rainfall/stations?from=&to=` | Observed station rainfall within the three-day window. |
-| `GET /api/weather/history/rainfall/nowcast?from=&to=` | Available archived nowcast issue and valid times. |
-| `GET /api/weather/history/rainfall/nowcast/{issueTime}/{validTime}` | Numerical grid from one archived forecast. |
-| `GET /api/weather/history/radar?from=&to=` | Archived radar-frame index. |
-| `GET /api/weather/history/radar/{observedAt}/image` | One timestamped radar PNG. |
-| `GET /api/weather/history/stations/{stationCode}/forecast?from=&to=` | Archived OCF forecasts for a configured station. |
-| `GET /api/weather/history/models/{modelId}/rainfall?from=&to=` | Archived Earth Weather rainfall-frame metadata. |
-| `GET /api/weather/history/models/{modelId}/rainfall/{validAt}/image` | One timestamped stored model raster. |
+- all 27 public weather route patterns returned their expected success
+  responses;
+- regional wind returned 30 readings, including three normalized calm rows;
+- the nowcast history returned 62 frame references;
+- all archive indexes contained data;
+- latest and archived PNG signatures, lengths and ETags were valid;
+- a repeated current-weather request produced a Vercel CDN hit;
+- an ETag revalidation produced `304`;
+- a representative invalid model produced an uncached `422`;
+- the largest tested response was approximately 231 KB.
 
-The first archive response should be an index containing timestamps and stable
-URLs. Large payloads and images are fetched individually only when the user
-selects a frame.
+## 2. Immediate next step: add the frontend data layer
 
-### 1.6 Backend implementation order
+The backend contracts are stable enough for frontend integration. Build one
+small typed boundary between React and `/api/weather/*`; components should not
+know about upstream HKO formats.
 
-1. Extract the current-weather-specific MongoDB reader into reusable JSON,
-   parsed-CSV and binary read helpers.
-2. Define shared Pydantic response metadata, list and error models.
-3. Add local forecast, nine-day forecast and combined warning endpoints.
-4. Add station rainfall, regional temperature, regional wind and lamppost
-   endpoints.
-5. Add OCF station-list and station-forecast endpoints.
-6. Add Earth Weather model-cycle and tropical-cyclone endpoints.
-7. Add rainfall-nowcast parsing plus radar and model image endpoints.
-8. Add bounded archive index and timestamped payload endpoints.
-9. Document every public route in `README.md` and expose it in FastAPI's
-   generated OpenAPI schema.
+1. Add TypeScript types matching the OpenAPI response models, starting with
+   warnings, current weather, local forecast, nine-day forecast and regional
+   observations.
+2. Create a same-origin API client module for `/api/weather/*` with shared JSON
+   decoding and a small typed error class for `404`, `422` and `503` responses.
+3. Keep server-rendered initial page data separate from client-side timeline,
+   station-selection and map interactions.
+4. Model loading, unavailable, stale and retry states consistently across all
+   sections.
+5. Display `sourceUpdatedAt` separately from `fetchedAt`; source time is the
+   weather observation or forecast time, while fetch time records ingestion.
+6. Add checked-in response fixtures captured from the normalized application
+   API. Frontend tests must not call live HKO or MongoDB services.
+7. Add frontend lint, type-check and production-build commands to the standard
+   verification workflow.
 
-Each endpoint needs tests for a successful read, missing data, malformed stored
-data, invalid path/query parameters, database failure and cache headers. Binary
-routes additionally need content-type, content-length and ETag tests.
-
-### 1.7 GET-endpoint completion criteria
-
-This step is complete when:
-
-- every latest document required by the planned interface is accessible
-  through a typed public route;
-- map indexes return enough metadata to position and select stored frames;
-- raw PNG payloads are served directly without Base64 encoding;
-- the frontend does not need MongoDB field names or knowledge of BSON;
-- all endpoints use the reader account and pass backend tests and Ruff;
-- deployed smoke tests confirm MongoDB access, CDN headers and response sizes;
-- the OpenAPI page accurately describes all public response contracts.
-
-## 2. Add the frontend data layer
-
-After the GET contracts are stable:
-
-1. Add TypeScript types matching the OpenAPI response models.
-2. Create one small API client module for same-origin `/api/weather/*` calls.
-3. Separate server-rendered initial data from client-side timeline and map
-   interactions.
-4. Add consistent loading, unavailable, stale-data and retry states.
-5. Display source-update time separately from the application's fetch time.
-6. Add frontend tests using stored response fixtures rather than live HKO
-   calls.
-
-Do not duplicate HKO parsing logic in React components. Components should
-receive normalized API data.
+The frontend data layer is complete when a page can load the first non-map
+weather sections through typed functions, handle each API error class, and run
+tests entirely from fixtures.
 
 ## 3. Build the first usable page
 
@@ -205,8 +162,9 @@ temporarily unavailable.
 3. Establish shared layer controls, legend placement, timestamps and timeline
    controls.
 4. Move large grid parsing and colour conversion into a Web Worker.
-5. Render numerical rainfall grids with Canvas/WebGL and geographic bounds.
-6. Keep weather data layers independent of the basemap so they can be toggled,
+5. Render numerical rainfall grids with Canvas or WebGL using the API-provided
+   grid ordering and geographic bounds.
+6. Keep weather layers independent of the basemap so they can be toggled,
    reordered and compared.
 7. Test pan, zoom, resize, mobile gestures and high-DPI displays.
 
@@ -214,13 +172,13 @@ temporarily unavailable.
 
 Add layers in increasing order of uncertainty:
 
-1. Regional weather stations and smart lamppost markers.
+1. Regional weather stations and smart-lamppost markers.
 2. Numerical HKO gridded rainfall nowcast.
 3. Radar PNG overlay using its stored geographic bounds.
 4. Active tropical-cyclone GeoJSON tracks.
-5. Earth Weather rainfall rasters after verifying their encoding, projection,
-   colour scale and bounds.
-6. Additional Earth Weather fields only after the rainfall pipeline is proven.
+5. Earth Weather rainfall rasters after verifying their internal encoding,
+   projection, colour scale and bounds.
+6. Additional Earth Weather fields only after rainfall is proven.
 
 Every layer needs a source timestamp, valid time, legend, units and a visible
 unavailable state. Internal OCF and Earth Weather feeds must fail independently
@@ -228,8 +186,8 @@ without taking down official HKO observations or forecasts.
 
 ## 6. Build forecast comparison
 
-Use the existing three-day archive to compare what was predicted with what was
-later observed:
+Use the existing three-day archive to compare predictions with later
+observations:
 
 1. Align forecasts by `issueTime`, `validAt` and lead time.
 2. Align observations by station or grid location and observation interval.
@@ -237,21 +195,23 @@ later observed:
    observed station rainfall.
 4. Preserve the distinction between quantitative station observations and
    radar imagery used for visual comparison.
-5. Add station temperature comparisons between OCF predictions and regional
-   observations where station mapping is reliable.
-6. Introduce calculated error metrics only after the alignment rules have
+5. Add station-temperature comparisons between OCF predictions and regional
+   observations only where station mapping is reliable.
+6. Introduce calculated error metrics only after alignment rules have
    fixture-based tests.
 
 ## 7. Harden and verify the complete application
 
 1. Run Python tests and Ruff, then frontend linting, type checking and build.
-2. Add API contract fixtures for every official and internal upstream format.
+2. Expand API contract fixtures for every official and internal upstream
+   format.
 3. Add local end-to-end tests through `vercel dev` using MongoDB test data.
-4. Verify Vercel response caching and ensure cron responses are never cached.
-5. Add frontend error monitoring and backend structured logs without secrets or
-   full upstream payloads.
-6. Review MongoDB TTL deletion and storage usage against the free-cluster
-   budget.
+4. Keep deployed smoke tests for all public GET routes and confirm cron
+   responses remain uncached.
+5. Add frontend error monitoring and backend structured logs without secrets
+   or full upstream payloads.
+6. Review MongoDB TTL deletion, index size and total storage against the free
+   cluster budget.
 7. Verify cron failure notifications and periodically test `ingest-all`
    manually.
 8. Check accessibility, keyboard navigation, mobile layout and map fallbacks.
@@ -260,8 +220,8 @@ later observed:
 ## 8. Later options
 
 - Add other Earth Weather fields after rainfall is decoded and stable.
-- Add forecast verification summaries beyond the rolling three-day viewer.
-- Move large immutable images to object storage only if MongoDB or response-size
+- Add forecast-verification summaries beyond the rolling three-day viewer.
+- Move large immutable images to object storage only if MongoDB or response
   limits become a measured problem.
 - Introduce a compact binary grid format only if profiling shows JSON transfer
   or browser parsing is too slow.

@@ -396,20 +396,19 @@ def _validate_range(
 async def _archive_documents(
     database: AsyncDatabase,
     dataset: str,
+    document_id: str,
     field: str,
     from_time: datetime,
     to_time: datetime,
     *,
-    extra_filter: dict[str, Any] | None = None,
     projection: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     start, end = _validate_range(from_time, to_time)
     query: dict[str, Any] = {
         "dataset": dataset,
+        "document_id": document_id,
         field: {"$gte": start, "$lte": end},
     }
-    if extra_filter:
-        query.update(extra_filter)
     cursor = database["archive"].find(query, projection or LATEST_PROJECTION)
     cursor = cursor.sort(field, ASCENDING).limit(MAX_ARCHIVE_RESULTS + 1)
     documents = await cursor.to_list(length=MAX_ARCHIVE_RESULTS + 1)
@@ -1229,6 +1228,7 @@ async def get_station_rainfall_history(
     raw_documents = await _archive_documents(
         database,
         STATION_RAINFALL_DATASET,
+        STATION_RAINFALL_DATASET,
         "source_updated_at",
         from_time,
         to_time,
@@ -1268,6 +1268,7 @@ async def get_rainfall_nowcast_history(
 ) -> ListResponse[ArchivedRainfallFrame]:
     raw_documents = await _archive_documents(
         database,
+        GRIDDED_RAINFALL_NOWCAST_DATASET,
         GRIDDED_RAINFALL_NOWCAST_DATASET,
         "source_updated_at",
         from_time,
@@ -1338,6 +1339,7 @@ async def get_archived_rainfall_nowcast_grid(
     document = await database["archive"].find_one(
         {
             "dataset": GRIDDED_RAINFALL_NOWCAST_DATASET,
+            "document_id": GRIDDED_RAINFALL_NOWCAST_DATASET,
             "source_updated_at": issue.astimezone(UTC),
         },
         LATEST_PROJECTION,
@@ -1375,6 +1377,7 @@ async def get_radar_history(
 ) -> ListResponse[ArchivedRadarFrame]:
     raw_documents = await _archive_documents(
         database,
+        RADAR_128_DATASET,
         RADAR_128_DATASET,
         "observed_at",
         from_time,
@@ -1421,6 +1424,7 @@ async def get_archived_radar_image(
     document = await database["archive"].find_one(
         {
             "dataset": RADAR_128_DATASET,
+            "document_id": RADAR_128_DATASET,
             "observed_at": observed.astimezone(UTC),
         },
         LATEST_PROJECTION,
@@ -1448,9 +1452,11 @@ async def get_station_forecast_history(
     to_time: ArchiveTo,
 ) -> ListResponse[ArchivedForecast]:
     station = _configured_station(station_code)
+    document_id = f"{OCF_STATION_FORECAST_DATASET}:{station.station_code}"
     raw_documents = await _archive_documents(
         database,
         OCF_STATION_FORECAST_DATASET,
+        document_id,
         "source_updated_at",
         from_time,
         to_time,
@@ -1464,7 +1470,7 @@ async def get_station_forecast_history(
             validate=OcfStationForecastPayload.model_validate,
         )
         if str(payload.get("StationCode", "")).upper() != station.station_code:
-            continue
+            raise StoredDataError(document_id)
         public_payload = _public_keys(payload)
         public_payload["stationLabel"] = station.label
         data.append(
@@ -1479,7 +1485,7 @@ async def get_station_forecast_history(
     return ListResponse(
         data=data,
         meta=_list_meta(
-            f"{OCF_STATION_FORECAST_DATASET}:{station.station_code}",
+            document_id,
             documents,
             len(data),
         ),
@@ -1498,13 +1504,14 @@ async def get_model_rainfall_history(
     to_time: ArchiveTo,
 ) -> ListResponse[ArchivedModelRainfall]:
     model = _rainfall_model(model_id)
+    document_id = f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}"
     raw_documents = await _archive_documents(
         database,
         EARTH_WEATHER_RAINFALL_DATASET,
+        document_id,
         "valid_at",
         from_time,
         to_time,
-        extra_filter={"model": model.model_id},
     )
     data = []
     documents = []
@@ -1538,7 +1545,7 @@ async def get_model_rainfall_history(
     return ListResponse(
         data=data,
         meta=_list_meta(
-            f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}",
+            document_id,
             documents,
             len(data),
         ),
@@ -1561,16 +1568,17 @@ async def get_archived_model_rainfall_image(
 ) -> Response:
     model = _rainfall_model(model_id)
     valid = _parse_public_time(valid_at, UTC)
+    document_id = f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}"
     document = await database["archive"].find_one(
         {
             "dataset": EARTH_WEATHER_RAINFALL_DATASET,
-            "model": model.model_id,
+            "document_id": document_id,
             "valid_at": valid.astimezone(UTC),
         },
         LATEST_PROJECTION,
     )
     if document is None:
-        raise DatasetNotFoundError(f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}")
+        raise DatasetNotFoundError(document_id)
     payload, stored = read_binary_payload(
         document,
         EARTH_WEATHER_RAINFALL_DATASET,

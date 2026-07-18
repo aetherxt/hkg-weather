@@ -79,6 +79,8 @@ def test_changed_current_weather_is_stored_as_latest_and_archive() -> None:
 
     archive_update = archive.update_one.await_args.args[1]["$setOnInsert"]
     assert "_id" not in archive_update
+    assert archive_update["document_id"] == "current_weather"
+    assert archive_update["archive_policy"] == "content"
     assert archive_update["payload"] == response.content
     assert archive_update["expires_at"] == fetched_at + ARCHIVE_RETENTION
 
