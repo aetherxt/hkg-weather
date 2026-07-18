@@ -1,7 +1,8 @@
 # HKG Weather Web Application — Planning Document
 
-Last updated: 17 July 2026
+Last updated: 18 July 2026
 Endpoint and response-format details: [HKO_DATA_API_REFERENCE.md](./HKO_DATA_API_REFERENCE.md)
+Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 
 ## 1. Stack
 
@@ -191,3 +192,74 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - The three-day radar archive is approximately 10 MB.
 - Rainfall forecast, radar, metadata and indexes are expected to use approximately 215–225 MB before the other stored datasets are included.
 - Keep total Atlas storage below approximately 400 MB to leave headroom under the 512 MB free-cluster limit.
+
+## 4. Project file structure
+
+```text
+better-weather/
+├── .env.example                         # Environment-variable template
+├── .gitignore                           # Repository-wide ignore rules
+├── HKO_DATA_API_REFERENCE.md            # Upstream API and response reference
+├── IMPLEMENTATION_PLAN.md               # Living application plan
+├── NEXT_STEPS.md                        # Ordered implementation work
+├── README.md                            # Setup, development and deployment guide
+├── vercel.json                          # Vercel Services and /api routing configuration
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py                  # Python application package
+│   │   ├── auth.py                      # CRON_SECRET authentication
+│   │   ├── config.py                    # Environment and application settings
+│   │   ├── database.py                  # MongoDB ingestion and reader clients
+│   │   ├── internal_feeds.py            # OCF, Earth Weather, radar and cyclone feeds
+│   │   ├── json_ingestion.py            # Shared JSON ingestion pipeline
+│   │   ├── main.py                      # FastAPI entrypoint and HTTP routes
+│   │   ├── official_feeds.py            # Documented HKO feed definitions
+│   │   ├── raw_ingestion.py             # CSV, XML, image and other raw ingestion
+│   │   ├── storage.py                   # MongoDB indexes and archive policies
+│   │   ├── upstream.py                  # Shared upstream HTTP client
+│   │   └── data/
+│   │       ├── ocf_stations.json        # All 16 stored OCF stations
+│   │       └── smart_lamppost_devices.json
+│   │                                       # Selected smart-lamppost devices
+│   ├── scripts/
+│   │   ├── __init__.py                  # Script package
+│   │   ├── check_database.py            # Local MongoDB connectivity check
+│   │   └── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
+│   ├── tests/
+│   │   ├── test_auth.py
+│   │   ├── test_configure_cron_jobs.py
+│   │   ├── test_current_weather.py
+│   │   ├── test_current_weather_read.py
+│   │   ├── test_current_weather_read_route.py
+│   │   ├── test_current_weather_route.py
+│   │   ├── test_health.py
+│   │   ├── test_internal_feeds.py
+│   │   ├── test_json_ingestion.py
+│   │   ├── test_official_feed_routes.py
+│   │   ├── test_official_feeds.py
+│   │   ├── test_raw_ingestion.py
+│   │   └── test_storage.py
+│   ├── pyproject.toml                   # Python project metadata
+│   ├── pytest.ini                       # Pytest configuration
+│   ├── requirements.txt                 # Production dependencies
+│   ├── requirements-dev.txt             # Development and test dependencies
+│   └── ruff.toml                        # Python lint configuration
+└── web/
+    ├── app/
+    │   ├── favicon.ico                  # Site icon
+    │   ├── globals.css                  # Global and Tailwind styles
+    │   ├── layout.tsx                   # Next.js root layout
+    │   └── page.tsx                     # Home page
+    ├── public/                          # Static browser assets
+    ├── .gitignore                       # Next.js-specific ignore rules
+    ├── eslint.config.mjs                # Frontend lint configuration
+    ├── next.config.ts                   # Next.js configuration
+    ├── package.json                     # Frontend scripts and dependencies
+    ├── package-lock.json                # Locked npm dependency versions
+    ├── postcss.config.mjs               # Tailwind/PostCSS configuration
+    └── tsconfig.json                    # TypeScript configuration
+```
+
+The planned source tree excludes generated and machine-local content such as
+`.env.local`, `.vercel/`, `backend/build/`, virtual environments, Python cache
+directories, `web/.next/` and `web/node_modules/`. These must not be committed.

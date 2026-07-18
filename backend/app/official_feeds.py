@@ -1,6 +1,5 @@
 import csv
 import io
-import json
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -22,6 +21,12 @@ from .raw_ingestion import (
     RawIngestionResult,
     ValidatedRawPayload,
     ingest_raw_dataset,
+)
+from .storage_read import (
+    DatasetNotFoundError,
+    StoredDataError,
+    decode_json_object,
+    read_latest_document,
 )
 
 ARCHIVE_RETENTION = timedelta(days=3)
@@ -134,6 +139,7 @@ class SmartLamppostPayload(BaseModel):
 class CurrentWeatherMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    dataset: Literal[CURRENT_WEATHER_DATASET] = CURRENT_WEATHER_DATASET
     source_updated_at: datetime = Field(serialization_alias="sourceUpdatedAt")
     fetched_at: datetime = Field(serialization_alias="fetchedAt")
 
@@ -141,12 +147,6 @@ class CurrentWeatherMetadata(BaseModel):
 class CurrentWeatherReadResponse(BaseModel):
     data: dict[str, Any]
     meta: CurrentWeatherMetadata
-
-
-class StoredCurrentWeatherDocument(BaseModel):
-    payload: bytes
-    source_updated_at: datetime
-    fetched_at: datetime
 
 
 class CurrentWeatherNotFoundError(Exception):
@@ -494,25 +494,27 @@ async def ingest_smart_lampposts(
 async def read_current_weather(
     database: AsyncDatabase,
 ) -> CurrentWeatherReadResponse:
-    document = await database["latest"].find_one(
-        {"_id": CURRENT_WEATHER_DATASET},
-        {
-            "_id": 0,
-            "payload": 1,
-            "source_updated_at": 1,
-            "fetched_at": 1,
-        },
-    )
-    if document is None:
-        raise CurrentWeatherNotFoundError
+    try:
+        document = await read_latest_document(
+            database,
+            CURRENT_WEATHER_DATASET,
+            projection={
+                "_id": 0,
+                "payload": 1,
+                "source_updated_at": 1,
+                "fetched_at": 1,
+            },
+        )
+    except DatasetNotFoundError as error:
+        raise CurrentWeatherNotFoundError from error
 
     try:
-        stored = StoredCurrentWeatherDocument.model_validate(document)
-        payload = json.loads(stored.payload)
-        if not isinstance(payload, dict):
-            raise ValueError("stored current-weather payload must be an object")
-        CurrentWeatherPayload.model_validate(payload)
-    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as error:
+        payload, stored = decode_json_object(
+            document,
+            CURRENT_WEATHER_DATASET,
+            validate=CurrentWeatherPayload.model_validate,
+        )
+    except StoredDataError as error:
         raise StoredCurrentWeatherError from error
 
     return CurrentWeatherReadResponse(

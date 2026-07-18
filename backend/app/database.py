@@ -18,6 +18,7 @@ def _create_client(uri: str) -> AsyncMongoClient:
         connectTimeoutMS=10_000,
         serverSelectionTimeoutMS=10_000,
         server_api=ServerApi("1", strict=True, deprecation_errors=True),
+        tz_aware=True,
     )
 
 

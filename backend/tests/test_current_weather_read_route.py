@@ -62,6 +62,7 @@ def test_current_weather_route_returns_public_data(
     assert response.status_code == 200
     assert response.json()["data"]["icon"] == [60]
     assert response.json()["meta"] == {
+        "dataset": "current_weather",
         "sourceUpdatedAt": "2026-07-17T09:02:00Z",
         "fetchedAt": "2026-07-17T09:19:00Z",
     }

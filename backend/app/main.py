@@ -7,6 +7,8 @@ from typing import Annotated, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pymongo.asynchronous.database import AsyncDatabase
@@ -58,7 +60,9 @@ from .official_feeds import (
     load_smart_lamppost_devices,
     read_current_weather,
 )
+from .storage_read import DatasetNotFoundError, StoredDataError
 from .upstream import get_http_client
+from .weather_reads import router as weather_reader_router
 
 logger = logging.getLogger(__name__)
 DatabaseStatus = Literal["connected", "unavailable"]
@@ -87,6 +91,57 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(
+    _: Request,
+    error: RequestValidationError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": jsonable_encoder(error.errors())},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.exception_handler(DatasetNotFoundError)
+async def dataset_not_found_error(
+    _: Request,
+    error: DatasetNotFoundError,
+) -> JSONResponse:
+    logger.info("Stored weather dataset not found: %s", error.dataset)
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Weather data not found"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.exception_handler(StoredDataError)
+async def stored_data_error(
+    _: Request,
+    error: StoredDataError,
+) -> JSONResponse:
+    logger.error("Stored weather dataset is invalid: %s", error.dataset)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Weather data unavailable"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.exception_handler(PyMongoError)
+async def weather_storage_error(
+    _: Request,
+    error: PyMongoError,
+) -> JSONResponse:
+    logger.error("Weather database read failed: %s", type(error).__name__)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Weather storage unavailable"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.exception_handler(JsonDatasetUpstreamError)
@@ -549,3 +604,6 @@ async def get_current_weather(
         "max-age=300, stale-while-revalidate=600"
     )
     return current_weather
+
+
+app.include_router(weather_reader_router)
