@@ -44,6 +44,7 @@ from .official_feeds import (
     WarningInformationPayload,
     WarningSummaryPayload,
     load_smart_lamppost_devices,
+    normalize_wind_csv_row,
     parse_hong_kong_time,
 )
 from .storage_read import (
@@ -51,11 +52,13 @@ from .storage_read import (
     DatasetNotFoundError,
     StoredDataError,
     StoredDocument,
+    StoredMetadata,
     decode_csv_rows,
     decode_json_object,
     read_binary_payload,
     read_latest_document,
     validate_stored_document,
+    validate_stored_metadata,
 )
 
 HONG_KONG = ZoneInfo("Asia/Hong_Kong")
@@ -245,7 +248,7 @@ class ArchivedModelRainfall(PublicModel):
 
 def _meta(
     dataset: str,
-    stored: StoredDocument | None,
+    stored: StoredMetadata | None,
 ) -> ResponseMetadata:
     return ResponseMetadata(
         dataset=dataset,
@@ -256,7 +259,7 @@ def _meta(
 
 def _list_meta(
     dataset: str,
-    documents: list[StoredDocument],
+    documents: list[StoredMetadata],
     count: int,
 ) -> ListResponseMetadata:
     source_times = [
@@ -308,7 +311,7 @@ def _public_keys(value: Any) -> Any:
 
 def _number_or_none(value: str) -> float | None:
     cleaned = value.strip()
-    if not cleaned or cleaned.upper() in {"N/A", "M", "////"}:
+    if not cleaned or cleaned.upper() in {"N/A", "M", "////", "CALM"}:
         return None
     try:
         return float(cleaned)
@@ -398,6 +401,7 @@ async def _archive_documents(
     to_time: datetime,
     *,
     extra_filter: dict[str, Any] | None = None,
+    projection: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     start, end = _validate_range(from_time, to_time)
     query: dict[str, Any] = {
@@ -406,7 +410,7 @@ async def _archive_documents(
     }
     if extra_filter:
         query.update(extra_filter)
-    cursor = database["archive"].find(query, LATEST_PROJECTION)
+    cursor = database["archive"].find(query, projection or LATEST_PROJECTION)
     cursor = cursor.sort(field, ASCENDING).limit(MAX_ARCHIVE_RESULTS + 1)
     documents = await cursor.to_list(length=MAX_ARCHIVE_RESULTS + 1)
     if len(documents) > MAX_ARCHIVE_RESULTS:
@@ -729,6 +733,7 @@ async def get_regional_wind(
         document,
         REGIONAL_WIND_DATASET,
         expected_columns=5,
+        normalize_row=normalize_wind_csv_row,
     )
     try:
         readings = [
@@ -1267,21 +1272,47 @@ async def get_rainfall_nowcast_history(
         "source_updated_at",
         from_time,
         to_time,
+        projection={
+            "_id": 0,
+            "source_updated_at": 1,
+            "fetched_at": 1,
+            "archive_valid_times": 1,
+        },
     )
     frames_by_time = {}
     documents = []
     for document in raw_documents:
-        grids, stored = _parse_rainfall_grids(document)
+        stored = validate_stored_metadata(
+            document,
+            GRIDDED_RAINFALL_NOWCAST_DATASET,
+        )
+        if stored.source_updated_at is None:
+            raise StoredDataError(GRIDDED_RAINFALL_NOWCAST_DATASET)
+        issue_time = stored.source_updated_at.astimezone(HONG_KONG)
+        raw_valid_times = document.get("archive_valid_times")
+        if raw_valid_times is None:
+            valid_times = [
+                issue_time + timedelta(minutes=30),
+                issue_time + timedelta(minutes=60),
+            ]
+        elif (
+            isinstance(raw_valid_times, list)
+            and len(raw_valid_times) == 2
+            and all(isinstance(value, datetime) for value in raw_valid_times)
+        ):
+            valid_times = [value.astimezone(HONG_KONG) for value in raw_valid_times]
+        else:
+            raise StoredDataError(GRIDDED_RAINFALL_NOWCAST_DATASET)
         documents.append(stored)
-        for grid in grids:
-            key = (grid.updated_at.astimezone(UTC), grid.valid_at.astimezone(UTC))
+        for valid_time in valid_times:
+            key = (issue_time.astimezone(UTC), valid_time.astimezone(UTC))
             frames_by_time[key] = ArchivedRainfallFrame(
-                issue_time=grid.updated_at,
-                valid_time=grid.valid_at,
+                issue_time=issue_time,
+                valid_time=valid_time,
                 url=(
                     "/api/weather/history/rainfall/nowcast/"
-                    f"{_compact_hong_kong(grid.updated_at)}/"
-                    f"{_compact_hong_kong(grid.valid_at)}"
+                    f"{_compact_hong_kong(issue_time)}/"
+                    f"{_compact_hong_kong(valid_time)}"
                 ),
             )
     data = [frames_by_time[key] for key in sorted(frames_by_time)]

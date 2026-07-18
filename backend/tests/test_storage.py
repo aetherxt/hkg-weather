@@ -29,4 +29,16 @@ def test_storage_indexes_are_created() -> None:
             unique=True,
             partialFilterExpression={"archive_slot": {"$exists": True}},
         ),
+        call(
+            [("dataset", 1), ("source_updated_at", 1)],
+            name="archive_dataset_source_updated",
+        ),
+        call(
+            [("dataset", 1), ("observed_at", 1)],
+            name="archive_dataset_observed",
+        ),
+        call(
+            [("dataset", 1), ("model", 1), ("valid_at", 1)],
+            name="archive_dataset_model_valid",
+        ),
     ]

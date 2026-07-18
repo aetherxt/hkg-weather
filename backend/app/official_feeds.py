@@ -255,8 +255,40 @@ def validate_temperature_csv(raw_payload: bytes) -> ValidatedRawPayload:
     return validate_regional_csv(raw_payload, expected_columns=3)
 
 
+def normalize_wind_csv_row(row: list[str]) -> list[str]:
+    if len(row) == 5:
+        return row
+    if (
+        len(row) == 6
+        and row[2].strip().casefold() == "calm"
+        and row[3].strip().casefold() == "calm"
+        and not row[5].strip()
+    ):
+        return [row[0], row[1], row[2], "", row[4]]
+    raise ValueError("regional wind CSV row has an unexpected schema")
+
+
 def validate_wind_csv(raw_payload: bytes) -> ValidatedRawPayload:
-    return validate_regional_csv(raw_payload, expected_columns=5)
+    reader = csv.reader(io.StringIO(raw_payload.decode("utf-8-sig")))
+    header = next(reader, None)
+    if header is None or len(header) != 5:
+        raise ValueError("regional wind CSV has an unexpected schema")
+
+    source_updated_at = None
+    row_count = 0
+    for raw_row in reader:
+        if not raw_row:
+            continue
+        row = normalize_wind_csv_row(raw_row)
+        row_updated_at = parse_hong_kong_time(row[0])
+        if not row[1].strip():
+            raise ValueError("regional wind CSV station is empty")
+        source_updated_at = source_updated_at or row_updated_at
+        row_count += 1
+
+    if source_updated_at is None or row_count == 0:
+        raise ValueError("regional wind CSV is empty")
+    return ValidatedRawPayload(source_updated_at=source_updated_at)
 
 
 def validate_gridded_rainfall_csv(raw_payload: bytes) -> ValidatedRawPayload:
@@ -298,6 +330,11 @@ def validate_gridded_rainfall_csv(raw_payload: bytes) -> ValidatedRawPayload:
     return ValidatedRawPayload(
         source_updated_at=source_updated_at,
         archive_payload=archive_buffer.getvalue().encode(),
+        metadata={
+            "archive_valid_times": [
+                parse_hong_kong_time(value) for value in selected_valid_times
+            ]
+        },
     )
 
 

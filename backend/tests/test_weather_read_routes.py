@@ -113,6 +113,49 @@ def test_regional_temperature_returns_typed_missing_values() -> None:
     ]
 
 
+def test_regional_wind_normalizes_hko_calm_rows() -> None:
+    document = {
+        "payload": Binary(
+            b"Date time,Automatic Weather Station,Direction,Speed,Gust\n"
+            b"202607181330,Central Pier,Northwest,9,14\n"
+            b"202607181330,Lamma Island,Calm,Calm,0,\n"
+            b"202607181330,Wetland Park,Calm,Calm,1,\n"
+        ),
+        "source_updated_at": datetime(2026, 7, 18, 5, 30, tzinfo=UTC),
+        "fetched_at": datetime(2026, 7, 18, 5, 35, tzinfo=UTC),
+    }
+
+    response = request(
+        "/api/weather/regional/wind",
+        database_with_latest(document),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == [
+        {
+            "observedAt": "2026-07-18T13:30:00+08:00",
+            "station": "Central Pier",
+            "meanWindDirection": "Northwest",
+            "meanWindSpeedKmh": 9.0,
+            "maximumGustKmh": 14.0,
+        },
+        {
+            "observedAt": "2026-07-18T13:30:00+08:00",
+            "station": "Lamma Island",
+            "meanWindDirection": "Calm",
+            "meanWindSpeedKmh": None,
+            "maximumGustKmh": 0.0,
+        },
+        {
+            "observedAt": "2026-07-18T13:30:00+08:00",
+            "station": "Wetland Park",
+            "meanWindDirection": "Calm",
+            "meanWindSpeedKmh": None,
+            "maximumGustKmh": 1.0,
+        },
+    ]
+
+
 def test_rainfall_grid_is_north_to_south_and_west_to_east() -> None:
     document = {
         "payload": Binary(
@@ -211,3 +254,57 @@ def test_database_failures_return_uncached_503() -> None:
     assert response.status_code == 503
     assert response.json() == {"detail": "Weather storage unavailable"}
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_nowcast_history_uses_metadata_only_and_supports_legacy_documents() -> None:
+    cursor = MagicMock()
+    cursor.sort.return_value = cursor
+    cursor.limit.return_value = cursor
+    cursor.to_list = AsyncMock(
+        return_value=[
+            {
+                "source_updated_at": datetime(2026, 7, 18, 5, 24, tzinfo=UTC),
+                "fetched_at": datetime(2026, 7, 18, 5, 25, tzinfo=UTC),
+            }
+        ]
+    )
+    archive = MagicMock()
+    archive.find.return_value = cursor
+    database = MagicMock()
+    database.__getitem__.return_value = archive
+
+    response = request(
+        (
+            "/api/weather/history/rainfall/nowcast?"
+            "from=2026-07-18T05:00:00Z&to=2026-07-18T06:00:00Z"
+        ),
+        database,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == [
+        {
+            "issueTime": "2026-07-18T13:24:00+08:00",
+            "validTime": "2026-07-18T13:54:00+08:00",
+            "url": (
+                "/api/weather/history/rainfall/nowcast/"
+                "202607181324/202607181354"
+            ),
+        },
+        {
+            "issueTime": "2026-07-18T13:24:00+08:00",
+            "validTime": "2026-07-18T14:24:00+08:00",
+            "url": (
+                "/api/weather/history/rainfall/nowcast/"
+                "202607181324/202607181424"
+            ),
+        },
+    ]
+    projection = archive.find.call_args.args[1]
+    assert projection == {
+        "_id": 0,
+        "source_updated_at": 1,
+        "fetched_at": 1,
+        "archive_valid_times": 1,
+    }
+    assert "payload" not in projection

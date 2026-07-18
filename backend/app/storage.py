@@ -21,3 +21,15 @@ async def ensure_storage_indexes(database: AsyncDatabase) -> None:
         unique=True,
         partialFilterExpression={"archive_slot": {"$exists": True}},
     )
+    await archive.create_index(
+        [("dataset", ASCENDING), ("source_updated_at", ASCENDING)],
+        name="archive_dataset_source_updated",
+    )
+    await archive.create_index(
+        [("dataset", ASCENDING), ("observed_at", ASCENDING)],
+        name="archive_dataset_observed",
+    )
+    await archive.create_index(
+        [("dataset", ASCENDING), ("model", ASCENDING), ("valid_at", ASCENDING)],
+        name="archive_dataset_model_valid",
+    )

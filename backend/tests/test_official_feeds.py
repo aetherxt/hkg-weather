@@ -10,6 +10,7 @@ from app.official_feeds import (
     smart_lamppost_spec,
     validate_gridded_rainfall_csv,
     validate_temperature_csv,
+    validate_wind_csv,
 )
 
 
@@ -51,6 +52,10 @@ def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
     assert "202607171830" in archived
     assert "202607171900" in archived
     assert "202607171930" not in archived
+    assert validated.metadata["archive_valid_times"] == [
+        datetime.fromisoformat("2026-07-17T18:30:00+08:00"),
+        datetime.fromisoformat("2026-07-17T19:00:00+08:00"),
+    ]
     assert GRIDDED_RAINFALL_SPEC.archive_interval is not None
 
 
@@ -62,6 +67,18 @@ def test_regional_temperature_csv_extracts_hong_kong_time() -> None:
 
     assert validated.source_updated_at == datetime.fromisoformat(
         "2026-07-17T18:20:00+08:00"
+    )
+
+
+def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
+    validated = validate_wind_csv(
+        b"Date time,Automatic Weather Station,Direction,Speed,Gust\n"
+        b"202607181330,Central Pier,Northwest,9,14\n"
+        b"202607181330,Lamma Island,Calm,Calm,0,\n"
+    )
+
+    assert validated.source_updated_at == datetime.fromisoformat(
+        "2026-07-18T13:30:00+08:00"
     )
 
 

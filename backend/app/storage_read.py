@@ -9,13 +9,16 @@ from pydantic import BaseModel, ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 
 
-class StoredDocument(BaseModel):
-    payload: bytes
+class StoredMetadata(BaseModel):
     source_updated_at: datetime | None = None
     fetched_at: datetime
     content_hash: str | None = None
     content_type: str | None = None
     byte_size: int | None = None
+
+
+class StoredDocument(StoredMetadata):
+    payload: bytes
 
 
 class DatasetNotFoundError(Exception):
@@ -78,6 +81,16 @@ def validate_stored_document(
         raise StoredDataError(dataset) from error
 
 
+def validate_stored_metadata(
+    document: dict[str, Any],
+    dataset: str,
+) -> StoredMetadata:
+    try:
+        return StoredMetadata.model_validate(document)
+    except ValidationError as error:
+        raise StoredDataError(dataset) from error
+
+
 def decode_json_object(
     document: dict[str, Any],
     dataset: str,
@@ -101,6 +114,7 @@ def decode_csv_rows(
     dataset: str,
     *,
     expected_columns: int,
+    normalize_row: Callable[[list[str]], list[str]] | None = None,
 ) -> tuple[list[list[str]], StoredDocument]:
     stored = validate_stored_document(document, dataset)
     try:
@@ -112,6 +126,8 @@ def decode_csv_rows(
         for row in reader:
             if not row:
                 continue
+            if normalize_row is not None:
+                row = normalize_row(row)
             if len(row) != expected_columns:
                 raise ValueError("stored CSV row has an unexpected schema")
             rows.append(row)
