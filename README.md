@@ -285,7 +285,8 @@ Archive records use one of two explicit policies:
 - `slot`: unique by `dataset`, `document_id` and `archive_slot`.
 
 The migration from the original archive indexes must be run once against the
-live database. It backfills `document_id` and `archive_policy`, creates the new
+live database. It scans every retained archive record's metadata, repairs
+missing or invalid `document_id` and `archive_policy` values, creates the new
 partial unique/query indexes, and then removes the conflicting legacy indexes.
 It does not replace or delete weather payloads.
 

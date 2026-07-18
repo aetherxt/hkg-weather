@@ -46,6 +46,9 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 - Each JSON source supplies only its dataset identifiers, URL, payload model, source-update-time extractor and archive-retention policy.
 - Raw CSV, KML and PNG datasets use a parallel specification-driven ingestion
   service that preserves original bytes and validated dataset metadata.
+- Regional temperature and wind ingestion validates every non-empty row,
+  including schema, calendar time, station identity, measurement values and
+  consistent observation times, before replacing stored data.
 - `storage_read.py` provides reusable latest-document, stored-metadata, JSON,
   CSV and binary readers.
 - `weather_reads.py` owns the typed public weather router, response models,

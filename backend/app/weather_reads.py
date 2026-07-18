@@ -1,4 +1,5 @@
 import hashlib
+import math
 import re
 import xml.etree.ElementTree as ElementTree
 from collections import defaultdict
@@ -28,6 +29,7 @@ from .internal_feeds import (
 from .official_feeds import (
     GRIDDED_RAINFALL_NOWCAST_DATASET,
     LOCAL_FORECAST_DATASET,
+    MISSING_MEASUREMENT_VALUES,
     NINE_DAY_FORECAST_DATASET,
     REGIONAL_TEMPERATURE_DATASET,
     REGIONAL_WIND_DATASET,
@@ -311,12 +313,15 @@ def _public_keys(value: Any) -> Any:
 
 def _number_or_none(value: str) -> float | None:
     cleaned = value.strip()
-    if not cleaned or cleaned.upper() in {"N/A", "M", "////", "CALM"}:
+    if cleaned.upper() in MISSING_MEASUREMENT_VALUES:
         return None
     try:
-        return float(cleaned)
+        number = float(cleaned)
     except ValueError as error:
         raise ValueError("measurement is not numeric") from error
+    if not math.isfinite(number):
+        raise ValueError("measurement is not finite")
+    return number
 
 
 def _content_hash(payload: bytes, stored: StoredDocument) -> str:

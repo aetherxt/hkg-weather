@@ -33,8 +33,8 @@ LEGACY_INDEX_NAMES = (
 class ArchiveMigrationPlan:
     scanned_documents: int
     updates: tuple[UpdateOne, ...]
-    document_ids_to_add: int
-    policies_to_add: int
+    document_ids_to_set: int
+    policies_to_set: int
     legacy_indexes: tuple[str, ...]
 
 
@@ -53,7 +53,7 @@ def _json_payload(document: dict[str, Any]) -> dict[str, Any]:
 
 def infer_document_id(document: dict[str, Any]) -> str:
     existing = document.get("document_id")
-    if isinstance(existing, str) and existing:
+    if isinstance(existing, str) and existing and existing == existing.strip():
         return existing
 
     dataset = document.get("dataset")
@@ -92,14 +92,6 @@ def infer_document_id(document: dict[str, Any]) -> str:
 
 
 def infer_archive_policy(document: dict[str, Any]) -> ArchivePolicy:
-    existing = document.get("archive_policy")
-    if existing is not None:
-        try:
-            return ArchivePolicy(existing)
-        except ValueError as error:
-            raise ValueError(
-                "archive document has an invalid archive_policy"
-            ) from error
     if document.get("archive_slot") is not None:
         return ArchivePolicy.SLOT
     return ArchivePolicy.CONTENT
@@ -120,24 +112,23 @@ async def build_migration_plan(database: AsyncDatabase) -> ArchiveMigrationPlan:
         "model": 1,
         "storm_id": 1,
     }
-    cursor = archive.find(
-        {
-            "$or": [
-                {"document_id": {"$exists": False}},
-                {"archive_policy": {"$exists": False}},
-            ]
-        },
-        projection,
-    )
+    # Scan the small metadata projection for every retained archive record so
+    # present-but-invalid values are repaired as well as missing fields.
+    cursor = archive.find({}, projection)
 
     updates = []
     scanned_documents = 0
-    document_ids_to_add = 0
-    policies_to_add = 0
+    document_ids_to_set = 0
+    policies_to_set = 0
     async for document in cursor:
         scanned_documents += 1
         fields: dict[str, str] = {}
-        if not isinstance(document.get("document_id"), str):
+        existing_document_id = document.get("document_id")
+        if not (
+            isinstance(existing_document_id, str)
+            and existing_document_id
+            and existing_document_id == existing_document_id.strip()
+        ):
             if document.get("dataset") in {
                 OCF_STATION_FORECAST_DATASET,
                 SMART_LAMPPOST_DATASET,
@@ -150,18 +141,19 @@ async def build_migration_plan(database: AsyncDatabase) -> ArchiveMigrationPlan:
                     raise ValueError("archive document disappeared during migration")
                 document["payload"] = payload_document.get("payload")
             fields["document_id"] = infer_document_id(document)
-            document_ids_to_add += 1
-        if not isinstance(document.get("archive_policy"), str):
-            fields["archive_policy"] = infer_archive_policy(document).value
-            policies_to_add += 1
+            document_ids_to_set += 1
+        expected_policy = infer_archive_policy(document).value
+        if document.get("archive_policy") != expected_policy:
+            fields["archive_policy"] = expected_policy
+            policies_to_set += 1
         if fields:
             updates.append(UpdateOne({"_id": document["_id"]}, {"$set": fields}))
 
     return ArchiveMigrationPlan(
         scanned_documents=scanned_documents,
         updates=tuple(updates),
-        document_ids_to_add=document_ids_to_add,
-        policies_to_add=policies_to_add,
+        document_ids_to_set=document_ids_to_set,
+        policies_to_set=policies_to_set,
         legacy_indexes=legacy_indexes,
     )
 
@@ -205,9 +197,9 @@ async def async_main(args: argparse.Namespace) -> int:
     try:
         plan = await build_migration_plan(database)
         print(f"Database: {database.name}")
-        print(f"Legacy archive documents scanned: {plan.scanned_documents}")
-        print(f"document_id fields to add: {plan.document_ids_to_add}")
-        print(f"archive_policy fields to add: {plan.policies_to_add}")
+        print(f"Archive documents scanned: {plan.scanned_documents}")
+        print(f"document_id fields to set: {plan.document_ids_to_set}")
+        print(f"archive_policy fields to set: {plan.policies_to_set}")
         print(
             "Legacy indexes to remove: "
             + (", ".join(plan.legacy_indexes) or "none")

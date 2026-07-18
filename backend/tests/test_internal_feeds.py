@@ -23,7 +23,7 @@ from app.internal_feeds import (
     parse_tropical_cyclone_index,
     validate_png,
 )
-from app.json_ingestion import JsonIngestionResult
+from app.json_ingestion import JsonDatasetUpstreamError, JsonIngestionResult
 
 
 def test_ocf_station_configuration_and_source_time() -> None:
@@ -77,6 +77,37 @@ def test_ocf_station_configuration_and_source_time() -> None:
     assert ocf_source_updated_at(payload) == datetime.fromisoformat(
         "2026-07-17T21:12:02+08:00"
     )
+
+
+def test_earth_weather_cycle_must_be_calendar_valid() -> None:
+    with pytest.raises(ValueError):
+        EarthWeatherCyclePayload.model_validate({"default": "2026130100"})
+
+
+def test_rainfall_cycle_conversion_error_is_an_upstream_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def invalid_cycle(*_: object) -> EarthWeatherCyclePayload:
+        return EarthWeatherCyclePayload.model_construct(default="2026130100")
+
+    monkeypatch.setattr(
+        internal_feeds,
+        "_fetch_earth_weather_cycle",
+        invalid_cycle,
+    )
+
+    with pytest.raises(JsonDatasetUpstreamError) as error:
+        asyncio.run(
+            internal_feeds.ingest_earth_weather_rainfall(
+                object(),
+                object(),
+                models=(EARTH_WEATHER_RAINFALL_MODELS[0],),
+                now=datetime(2026, 7, 18, tzinfo=UTC),
+            )
+        )
+
+    assert error.value.dataset == "earth_weather_model_cycle"
+    assert isinstance(error.value.__cause__, ValueError)
 
 
 def test_ocf_station_ingestion_has_bounded_concurrency(

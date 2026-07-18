@@ -1,11 +1,15 @@
 import json
 from datetime import datetime
 
+import pytest
+from pydantic import ValidationError
+
 from app.official_feeds import (
     GRIDDED_RAINFALL_SPEC,
     LOCAL_FORECAST_SPEC,
     SPECIAL_WEATHER_TIPS_SPEC,
     WARNING_SUMMARY_SPEC,
+    SmartLamppostObservation,
     load_smart_lamppost_devices,
     smart_lamppost_spec,
     validate_gridded_rainfall_csv,
@@ -72,6 +76,39 @@ def test_regional_temperature_csv_extracts_hong_kong_time() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "invalid_row",
+    [
+        "202607171820,Cheung Chau",
+        "202613011820,Cheung Chau,28.0",
+        "202607171820,,28.0",
+        "202607171820,Cheung Chau,not-a-number",
+        "202607171821,Cheung Chau,28.0",
+    ],
+)
+def test_regional_temperature_validates_every_row(invalid_row: str) -> None:
+    raw = (
+        "Date time,Automatic Weather Station,Air Temperature(degree Celsius)\n"
+        "202607171820,Chek Lap Kok,29.1\n"
+        f"{invalid_row}\n"
+    ).encode()
+
+    with pytest.raises(ValueError):
+        validate_temperature_csv(raw)
+
+
+def test_regional_temperature_accepts_supported_missing_values() -> None:
+    validated = validate_temperature_csv(
+        b"Date time,Automatic Weather Station,Air Temperature(degree Celsius)\n"
+        b"202607171820,Chek Lap Kok,N/A\n"
+        b"202607171820,Cheung Chau,\n"
+    )
+
+    assert validated.source_updated_at == datetime.fromisoformat(
+        "2026-07-17T18:20:00+08:00"
+    )
+
+
 def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
     validated = validate_wind_csv(
         b"Date time,Automatic Weather Station,Direction,Speed,Gust\n"
@@ -82,6 +119,31 @@ def test_regional_wind_csv_accepts_hko_calm_row_anomaly() -> None:
     assert validated.source_updated_at == datetime.fromisoformat(
         "2026-07-18T13:30:00+08:00"
     )
+
+
+@pytest.mark.parametrize(
+    "invalid_row",
+    [
+        "202607181330,Wetland Park,Northwest,fast,14",
+        "202607181330,Wetland Park,Northwest,9,strong",
+        "202607181331,Wetland Park,Northwest,9,14",
+        "202607181330,,Northwest,9,14",
+    ],
+)
+def test_regional_wind_validates_every_measurement(invalid_row: str) -> None:
+    raw = (
+        "Date time,Automatic Weather Station,Direction,Speed,Gust\n"
+        "202607181330,Central Pier,Northwest,9,14\n"
+        f"{invalid_row}\n"
+    ).encode()
+
+    with pytest.raises(ValueError):
+        validate_wind_csv(raw)
+
+
+def test_smart_lamppost_timestamp_must_be_calendar_valid() -> None:
+    with pytest.raises(ValidationError):
+        SmartLamppostObservation.model_validate({"TS": "20261301000000"})
 
 
 def test_smart_lamppost_configuration_builds_separate_documents() -> None:

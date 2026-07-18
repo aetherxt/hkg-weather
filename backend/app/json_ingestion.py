@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
@@ -53,7 +53,7 @@ async def ingest_json_dataset[PayloadModel: BaseModel](
         raw_payload = response.content
         validated_payload = spec.payload_model.model_validate_json(raw_payload)
         source_updated_at = spec.source_updated_at(validated_payload)
-    except (httpx.HTTPError, ValidationError) as error:
+    except (httpx.HTTPError, ValueError) as error:
         raise JsonDatasetUpstreamError(spec.dataset) from error
 
     fetched_at = (now or datetime.now(UTC)).astimezone(UTC)

@@ -15,7 +15,6 @@ from pydantic import (
     ConfigDict,
     Field,
     TypeAdapter,
-    ValidationError,
     field_validator,
 )
 from pymongo.asynchronous.database import AsyncDatabase
@@ -119,6 +118,12 @@ class EarthWeatherCyclePayload(BaseModel):
 
     default: str = Field(pattern=r"^\d{10}$")
     tc_track: object | None = None
+
+    @field_validator("default")
+    @classmethod
+    def validate_default_cycle(cls, value: str) -> str:
+        parse_compact_time(value, "%Y%m%d%H", UTC)
+        return value
 
 
 class OcfStation(BaseModel):
@@ -495,7 +500,7 @@ async def _fetch_earth_weather_cycle(
         response = await client.get(spec.url)
         response.raise_for_status()
         return EarthWeatherCyclePayload.model_validate_json(response.content)
-    except (httpx.HTTPError, ValidationError) as error:
+    except (httpx.HTTPError, ValueError) as error:
         raise JsonDatasetUpstreamError(spec.dataset) from error
 
 
@@ -510,7 +515,10 @@ async def ingest_earth_weather_rainfall(
     results = []
     for model in models:
         cycle = await _fetch_earth_weather_cycle(client, model)
-        base_time = earth_cycle_source_updated_at(cycle)
+        try:
+            base_time = earth_cycle_source_updated_at(cycle)
+        except ValueError as error:
+            raise JsonDatasetUpstreamError(EARTH_WEATHER_CYCLE_DATASET) from error
         lead_hours = earth_rainfall_lead_hours(
             model,
             base_time,

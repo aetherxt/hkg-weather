@@ -1,5 +1,7 @@
 import csv
 import io
+import math
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -8,7 +10,14 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, RootModel, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    TypeAdapter,
+    field_validator,
+)
 from pymongo.asynchronous.database import AsyncDatabase
 
 from .json_ingestion import (
@@ -45,6 +54,7 @@ GRIDDED_RAINFALL_NOWCAST_DATASET = "gridded_rainfall_nowcast"
 REGIONAL_TEMPERATURE_DATASET = "regional_temperature"
 REGIONAL_WIND_DATASET = "regional_wind"
 SMART_LAMPPOST_DATASET = "smart_lamppost"
+MISSING_MEASUREMENT_VALUES = frozenset({"", "N/A", "M", "////", "CALM"})
 SMART_LAMPPOST_CONFIG_PATH = (
     Path(__file__).parent / "data" / "smart_lamppost_devices.json"
 )
@@ -121,6 +131,12 @@ class SmartLamppostObservation(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     measurement_time: str = Field(alias="TS", pattern=r"^\d{14}$")
+
+    @field_validator("measurement_time")
+    @classmethod
+    def validate_measurement_time(cls, value: str) -> str:
+        datetime.strptime(value, "%Y%m%d%H%M%S")
+        return value
 
 
 class SmartLamppostBody(BaseModel):
@@ -237,23 +253,68 @@ def parse_hong_kong_time(value: str) -> datetime:
     return datetime.strptime(value.strip(), "%Y%m%d%H%M").replace(tzinfo=HONG_KONG)
 
 
-def validate_regional_csv(
+def _validate_numeric_or_missing(value: str, field: str) -> None:
+    cleaned = value.strip()
+    if cleaned.upper() in MISSING_MEASUREMENT_VALUES:
+        return
+    try:
+        number = float(cleaned)
+    except ValueError as error:
+        raise ValueError(f"regional CSV {field} is not numeric") from error
+    if not math.isfinite(number):
+        raise ValueError(f"regional CSV {field} is not finite")
+
+
+def validate_regional_observations(
     raw_payload: bytes,
+    *,
     expected_columns: int,
+    measurement_columns: tuple[tuple[int, str], ...],
+    normalize_row: Callable[[list[str]], list[str]] | None = None,
 ) -> ValidatedRawPayload:
-    reader = csv.reader(io.StringIO(raw_payload.decode("utf-8-sig")))
-    header = next(reader, None)
-    first_row = next(reader, None)
-    if header is None or first_row is None:
+    reader = csv.reader(
+        io.StringIO(raw_payload.decode("utf-8-sig")),
+        strict=True,
+    )
+    try:
+        header = next(reader, None)
+        if header is None or len(header) != expected_columns:
+            raise ValueError("regional CSV has an unexpected schema")
+
+        source_updated_at = None
+        row_count = 0
+        for raw_row in reader:
+            if not raw_row or all(not value.strip() for value in raw_row):
+                continue
+            row = normalize_row(raw_row) if normalize_row else raw_row
+            if len(row) != expected_columns:
+                raise ValueError("regional CSV row has an unexpected schema")
+
+            row_updated_at = parse_hong_kong_time(row[0])
+            if source_updated_at is None:
+                source_updated_at = row_updated_at
+            elif row_updated_at != source_updated_at:
+                raise ValueError("regional CSV has inconsistent observation times")
+
+            if not row[1].strip():
+                raise ValueError("regional CSV station is empty")
+            for column, field in measurement_columns:
+                _validate_numeric_or_missing(row[column], field)
+            row_count += 1
+    except csv.Error as error:
+        raise ValueError("regional CSV is malformed") from error
+
+    if source_updated_at is None or row_count == 0:
         raise ValueError("regional CSV is empty")
-    if len(header) != expected_columns or len(first_row) != expected_columns:
-        raise ValueError("regional CSV has an unexpected schema")
-    source_updated_at = parse_hong_kong_time(first_row[0])
     return ValidatedRawPayload(source_updated_at=source_updated_at)
 
 
 def validate_temperature_csv(raw_payload: bytes) -> ValidatedRawPayload:
-    return validate_regional_csv(raw_payload, expected_columns=3)
+    return validate_regional_observations(
+        raw_payload,
+        expected_columns=3,
+        measurement_columns=((2, "temperature"),),
+    )
 
 
 def normalize_wind_csv_row(row: list[str]) -> list[str]:
@@ -270,26 +331,12 @@ def normalize_wind_csv_row(row: list[str]) -> list[str]:
 
 
 def validate_wind_csv(raw_payload: bytes) -> ValidatedRawPayload:
-    reader = csv.reader(io.StringIO(raw_payload.decode("utf-8-sig")))
-    header = next(reader, None)
-    if header is None or len(header) != 5:
-        raise ValueError("regional wind CSV has an unexpected schema")
-
-    source_updated_at = None
-    row_count = 0
-    for raw_row in reader:
-        if not raw_row:
-            continue
-        row = normalize_wind_csv_row(raw_row)
-        row_updated_at = parse_hong_kong_time(row[0])
-        if not row[1].strip():
-            raise ValueError("regional wind CSV station is empty")
-        source_updated_at = source_updated_at or row_updated_at
-        row_count += 1
-
-    if source_updated_at is None or row_count == 0:
-        raise ValueError("regional wind CSV is empty")
-    return ValidatedRawPayload(source_updated_at=source_updated_at)
+    return validate_regional_observations(
+        raw_payload,
+        expected_columns=5,
+        measurement_columns=((3, "wind speed"), (4, "maximum gust")),
+        normalize_row=normalize_wind_csv_row,
+    )
 
 
 def validate_gridded_rainfall_csv(raw_payload: bytes) -> ValidatedRawPayload:

@@ -62,6 +62,18 @@ def test_existing_document_id_is_preserved() -> None:
     ) == "ocf_station_forecast:HKO"
 
 
+@pytest.mark.parametrize("invalid_document_id", ["", "   ", None, 7])
+def test_invalid_document_id_is_rebuilt(
+    invalid_document_id: object,
+) -> None:
+    assert infer_document_id(
+        {
+            "dataset": "current_weather",
+            "document_id": invalid_document_id,
+        }
+    ) == "current_weather"
+
+
 def test_archive_policy_is_inferred_from_slot_presence() -> None:
     assert infer_archive_policy({}) is ArchivePolicy.CONTENT
     assert infer_archive_policy(
@@ -72,15 +84,28 @@ def test_archive_policy_is_inferred_from_slot_presence() -> None:
     ) is ArchivePolicy.CONTENT
 
 
-def test_invalid_existing_archive_policy_is_rejected() -> None:
-    with pytest.raises(ValueError, match="invalid archive_policy"):
-        infer_archive_policy({"archive_policy": "unknown"})
+def test_invalid_existing_archive_policy_is_repaired_from_slot_presence() -> None:
+    assert infer_archive_policy(
+        {"archive_policy": "unknown"}
+    ) is ArchivePolicy.CONTENT
+    assert infer_archive_policy(
+        {"archive_policy": "unknown", "archive_slot": datetime.now(UTC)}
+    ) is ArchivePolicy.SLOT
 
 
 def test_migration_plan_finds_legacy_documents_and_indexes() -> None:
     cursor = MagicMock()
     cursor.__aiter__.return_value = iter(
-        [{"_id": "one", "dataset": "current_weather"}]
+        [
+            {"_id": "one", "dataset": "current_weather"},
+            {
+                "_id": "two",
+                "dataset": "radar_128",
+                "document_id": "",
+                "archive_policy": "invalid",
+                "archive_slot": datetime(2026, 7, 18, tzinfo=UTC),
+            },
+        ]
     )
     archive = MagicMock()
     archive.index_information = AsyncMock(
@@ -92,11 +117,13 @@ def test_migration_plan_finds_legacy_documents_and_indexes() -> None:
 
     plan = asyncio.run(build_migration_plan(database))
 
-    assert plan.scanned_documents == 1
-    assert plan.document_ids_to_add == 1
-    assert plan.policies_to_add == 1
-    assert len(plan.updates) == 1
+    assert plan.scanned_documents == 2
+    assert plan.document_ids_to_set == 2
+    assert plan.policies_to_set == 2
+    assert len(plan.updates) == 2
     assert plan.legacy_indexes == ("archive_dataset_content_unique",)
+    archive.find.assert_called_once()
+    assert archive.find.call_args.args[0] == {}
 
 
 def test_migration_creates_replacement_indexes_before_dropping_legacy() -> None:
@@ -109,8 +136,8 @@ def test_migration_creates_replacement_indexes_before_dropping_legacy() -> None:
     plan = ArchiveMigrationPlan(
         scanned_documents=0,
         updates=(),
-        document_ids_to_add=0,
-        policies_to_add=0,
+        document_ids_to_set=0,
+        policies_to_set=0,
         legacy_indexes=("archive_dataset_content_unique",),
     )
 

@@ -4,9 +4,14 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 from pydantic import BaseModel, Field
 
-from app.json_ingestion import JsonDatasetSpec, ingest_json_dataset
+from app.json_ingestion import (
+    JsonDatasetSpec,
+    JsonDatasetUpstreamError,
+    ingest_json_dataset,
+)
 
 DUMMY_URL = "https://example.test/dataset.json"
 
@@ -72,3 +77,40 @@ def test_json_ingestion_uses_dataset_specification() -> None:
     assert archive_document["document_id"] == "dummy_latest"
     assert archive_document["archive_policy"] == "content"
     assert archive_document["expires_at"] == fetched_at + retention
+
+
+def test_source_time_value_error_is_reported_as_invalid_upstream_data() -> None:
+    response = httpx.Response(
+        200,
+        content=b'{"generatedAt":"2026-07-17T18:00:00+08:00"}',
+        request=httpx.Request("GET", DUMMY_URL),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(return_value=response)
+    latest = MagicMock()
+    latest.find_one = AsyncMock()
+    archive = MagicMock()
+    archive.create_index = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.side_effect = {
+        "latest": latest,
+        "archive": archive,
+    }.__getitem__
+
+    def invalid_source_time(_: DummyPayload) -> datetime:
+        raise ValueError("calendar-invalid source time")
+
+    spec = JsonDatasetSpec(
+        dataset="dummy_dataset",
+        document_id="dummy_latest",
+        url=DUMMY_URL,
+        payload_model=DummyPayload,
+        source_updated_at=invalid_source_time,
+    )
+
+    with pytest.raises(JsonDatasetUpstreamError) as error:
+        asyncio.run(ingest_json_dataset(database, client, spec))
+
+    assert isinstance(error.value.__cause__, ValueError)
+    latest.find_one.assert_not_awaited()
+    archive.create_index.assert_not_awaited()
