@@ -8,12 +8,12 @@ import httpx
 import pytest
 from pymongo.errors import OperationFailure
 
-from app.current_weather import (
+from app.json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
+from app.official_feeds import (
     ARCHIVE_RETENTION,
     CURRENT_WEATHER_URL,
     ingest_current_weather,
 )
-from app.json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 
 
 def weather_response(

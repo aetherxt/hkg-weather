@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -28,6 +29,7 @@ HONG_KONG = ZoneInfo("Asia/Hong_Kong")
 WEATHER_API = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
 
 LOCAL_FORECAST_DATASET = "local_forecast"
+CURRENT_WEATHER_DATASET = "current_weather"
 NINE_DAY_FORECAST_DATASET = "nine_day_forecast"
 WARNING_INFORMATION_DATASET = "warning_information"
 WARNING_SUMMARY_DATASET = "warning_summary"
@@ -44,6 +46,15 @@ SMART_LAMPPOST_CONFIG_PATH = (
 
 def weather_api_url(data_type: str) -> str:
     return f"{WEATHER_API}?{urlencode({'dataType': data_type, 'lang': 'en'})}"
+
+
+CURRENT_WEATHER_URL = weather_api_url("rhrread")
+
+
+class CurrentWeatherPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    update_time: datetime = Field(alias="updateTime")
 
 
 class LocalForecastPayload(BaseModel):
@@ -120,8 +131,44 @@ class SmartLamppostPayload(BaseModel):
     body: SmartLamppostBody = Field(alias="BODY")
 
 
+class CurrentWeatherMetadata(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_updated_at: datetime = Field(serialization_alias="sourceUpdatedAt")
+    fetched_at: datetime = Field(serialization_alias="fetchedAt")
+
+
+class CurrentWeatherReadResponse(BaseModel):
+    data: dict[str, Any]
+    meta: CurrentWeatherMetadata
+
+
+class StoredCurrentWeatherDocument(BaseModel):
+    payload: bytes
+    source_updated_at: datetime
+    fetched_at: datetime
+
+
+class CurrentWeatherNotFoundError(Exception):
+    pass
+
+
+class StoredCurrentWeatherError(Exception):
+    pass
+
+
 def latest_datetime(values: list[datetime]) -> datetime | None:
     return max(values) if values else None
+
+
+CURRENT_WEATHER_SPEC = JsonDatasetSpec(
+    dataset=CURRENT_WEATHER_DATASET,
+    document_id=CURRENT_WEATHER_DATASET,
+    url=CURRENT_WEATHER_URL,
+    payload_model=CurrentWeatherPayload,
+    source_updated_at=lambda payload: payload.update_time,
+    archive_retention=ARCHIVE_RETENTION,
+)
 
 
 LOCAL_FORECAST_SPEC = JsonDatasetSpec(
@@ -370,6 +417,20 @@ async def ingest_local_forecast(
     return await ingest_json_dataset(database, client, LOCAL_FORECAST_SPEC)
 
 
+async def ingest_current_weather(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+    *,
+    now: datetime | None = None,
+) -> JsonIngestionResult:
+    return await ingest_json_dataset(
+        database,
+        client,
+        CURRENT_WEATHER_SPEC,
+        now=now,
+    )
+
+
 async def ingest_nine_day_forecast(
     database: AsyncDatabase,
     client: httpx.AsyncClient,
@@ -428,3 +489,36 @@ async def ingest_smart_lampposts(
         result = await ingest_json_dataset(database, client, spec)
         results.append(ingestion_status(spec.document_id, result))
     return results
+
+
+async def read_current_weather(
+    database: AsyncDatabase,
+) -> CurrentWeatherReadResponse:
+    document = await database["latest"].find_one(
+        {"_id": CURRENT_WEATHER_DATASET},
+        {
+            "_id": 0,
+            "payload": 1,
+            "source_updated_at": 1,
+            "fetched_at": 1,
+        },
+    )
+    if document is None:
+        raise CurrentWeatherNotFoundError
+
+    try:
+        stored = StoredCurrentWeatherDocument.model_validate(document)
+        payload = json.loads(stored.payload)
+        if not isinstance(payload, dict):
+            raise ValueError("stored current-weather payload must be an object")
+        CurrentWeatherPayload.model_validate(payload)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as error:
+        raise StoredCurrentWeatherError from error
+
+    return CurrentWeatherReadResponse(
+        data=payload,
+        meta=CurrentWeatherMetadata(
+            source_updated_at=stored.source_updated_at,
+            fetched_at=stored.fetched_at,
+        ),
+    )

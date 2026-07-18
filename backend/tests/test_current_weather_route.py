@@ -8,9 +8,12 @@ import pytest
 from pydantic import SecretStr
 
 from app import auth, main
-from app.current_weather import CurrentWeatherIngestion
 from app.database import get_ingestion_database
-from app.json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
+from app.json_ingestion import (
+    JsonDatasetStorageError,
+    JsonDatasetUpstreamError,
+    JsonIngestionResult,
+)
 from app.main import app
 from app.upstream import get_http_client
 
@@ -65,7 +68,7 @@ def test_route_ingests_current_weather(monkeypatch: pytest.MonkeyPatch) -> None:
     secret = install_secret(monkeypatch)
     install_dependencies()
     ingestion = AsyncMock(
-        return_value=CurrentWeatherIngestion(
+        return_value=JsonIngestionResult(
             changed=True,
             source_updated_at=datetime.fromisoformat(
                 "2026-07-17T12:02:00+08:00"

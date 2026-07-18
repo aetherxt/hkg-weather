@@ -13,14 +13,6 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import PyMongoError
 
 from .auth import require_cron_secret
-from .current_weather import (
-    CurrentWeatherIngestionResponse,
-    CurrentWeatherNotFoundError,
-    CurrentWeatherReadResponse,
-    StoredCurrentWeatherError,
-    ingest_current_weather,
-    read_current_weather,
-)
 from .database import (
     close_database_clients,
     get_ingestion_database,
@@ -42,14 +34,19 @@ from .internal_feeds import (
 )
 from .json_ingestion import JsonDatasetStorageError, JsonDatasetUpstreamError
 from .official_feeds import (
+    CURRENT_WEATHER_DATASET,
     GRIDDED_RAINFALL_NOWCAST_DATASET,
     LOCAL_FORECAST_DATASET,
     NINE_DAY_FORECAST_DATASET,
     STATION_RAINFALL_DATASET,
     BatchIngestionResponse,
+    CurrentWeatherNotFoundError,
+    CurrentWeatherReadResponse,
     DatasetIngestionResponse,
     DatasetIngestionStatus,
     SmartLamppostIngestionResponse,
+    StoredCurrentWeatherError,
+    ingest_current_weather,
     ingest_gridded_rainfall,
     ingest_local_forecast,
     ingest_nine_day_forecast,
@@ -59,6 +56,7 @@ from .official_feeds import (
     ingest_warnings,
     ingestion_status,
     load_smart_lamppost_devices,
+    read_current_weather,
 )
 from .upstream import get_http_client
 
@@ -172,22 +170,18 @@ async def database_health() -> JSONResponse:
 
 @app.post(
     "/api/cron/current-weather",
-    response_model=CurrentWeatherIngestionResponse,
+    response_model=DatasetIngestionResponse,
 )
 async def cron_current_weather(
     response: Response,
     _authorization: Annotated[None, Depends(require_cron_secret)],
     database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
     client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
-) -> CurrentWeatherIngestionResponse:
+) -> DatasetIngestionResponse:
     response.headers["Cache-Control"] = "no-store"
     result = await ingest_current_weather(database, client)
-
-    return CurrentWeatherIngestionResponse(
-        changed=result.changed,
-        source_updated_at=result.source_updated_at,
-        fetched_at=result.fetched_at,
-    )
+    status_result = ingestion_status(CURRENT_WEATHER_DATASET, result)
+    return DatasetIngestionResponse(**status_result.model_dump())
 
 
 @app.post(
@@ -407,7 +401,7 @@ async def cron_ingest_all(
 
     async def current_weather_job() -> list[DatasetIngestionStatus]:
         result = await ingest_current_weather(database, client)
-        return [ingestion_status("current_weather", result)]
+        return [ingestion_status(CURRENT_WEATHER_DATASET, result)]
 
     async def local_forecast_job() -> list[DatasetIngestionStatus]:
         result = await ingest_local_forecast(database, client)

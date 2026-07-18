@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from bson import Binary
 
-from app.current_weather import (
+from app.official_feeds import (
     CurrentWeatherNotFoundError,
     StoredCurrentWeatherError,
     read_current_weather,

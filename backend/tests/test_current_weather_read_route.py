@@ -7,14 +7,14 @@ import pytest
 from pymongo.errors import OperationFailure
 
 from app import main
-from app.current_weather import (
+from app.database import get_read_database
+from app.main import app
+from app.official_feeds import (
     CurrentWeatherMetadata,
     CurrentWeatherNotFoundError,
     CurrentWeatherReadResponse,
     StoredCurrentWeatherError,
 )
-from app.database import get_read_database
-from app.main import app
 
 
 def request_current_weather() -> httpx.Response:
