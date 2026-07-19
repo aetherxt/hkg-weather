@@ -39,9 +39,9 @@ const detailSections: Array<{
   },
   {
     id: "uv",
-    label: "UV & AQ",
-    headline: "UV index 5 · Moderate",
-    body: "Ultraviolet exposure is moderate. The current air-quality level is reported as low.",
+    label: "Sun",
+    headline: "Sunrise & Sunset",
+    body: "Today's sunrise and sunset times.",
   },
 ];
 
@@ -85,6 +85,12 @@ export function WeatherDashboard({
   const warningsUpdatedAt = warningsSection
     ? (warningsSection.sourceUpdatedAt ?? warningsSection.fetchedAt)
     : null;
+  const astronomicalSection = initialWeather.astronomical.status === "ready" ||
+    initialWeather.astronomical.status === "stale"
+    ? initialWeather.astronomical
+    : null;
+  const astronomical = astronomicalSection?.data ?? null;
+
   const hasWarnings = warnings
     ? Object.values(warnings).some((w) => w.actionCode !== "CANCEL")
     : false;
@@ -101,30 +107,32 @@ export function WeatherDashboard({
       className="weather-page weather-dashboard"
       data-active-section={activeSection ?? undefined}
     >
-      <CurrentWeatherReport
-        temperature={vm?.temperature ?? null}
-        condition={vm?.condition ?? null}
-        humidity={vm?.humidity ?? null}
-        rainfall={vm?.rainfall ?? null}
-        updatedAt={currentUpdatedAt}
-        activeSection={activeSection}
-        onSelectSection={selectSection}
-      />
+      <div className="weather-left-column">
+        <CurrentWeatherReport
+          temperature={vm?.temperature ?? null}
+          condition={vm?.condition ?? null}
+          humidity={vm?.humidity ?? null}
+          rainfall={vm?.rainfall ?? null}
+          updatedAt={currentUpdatedAt}
+          activeSection={activeSection}
+          onSelectSection={selectSection}
+        />
 
-      <WeatherWarnings
-        warnings={warnings ?? {}}
-        updatedAt={warningsUpdatedAt}
-        activeSection={activeSection}
-        onSelectSection={selectSection}
-      />
+        <WeatherWarnings
+          warnings={warnings ?? {}}
+          updatedAt={warningsUpdatedAt}
+          activeSection={activeSection}
+          onSelectSection={selectSection}
+        />
 
-      <EnvironmentalConditions
-        uvIndex={vm?.uvIndex ?? null}
-        uvLevel={vm?.uvLevel ?? null}
-        airQuality={null}
-        activeSection={activeSection}
-        onSelectSection={selectSection}
-      />
+        <EnvironmentalConditions
+          uvIndex={vm?.uvIndex ?? null}
+          uvLevel={vm?.uvLevel ?? null}
+          astronomical={astronomical}
+          activeSection={activeSection}
+          onSelectSection={selectSection}
+        />
+      </div>
 
       <aside className="weather-detail-dock" aria-label="Weather details">
         <nav

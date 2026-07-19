@@ -1,4 +1,5 @@
 import type {
+  AstronomicalTimes,
   CurrentWeather,
   DataResponse,
   LamppostReading,
@@ -257,6 +258,8 @@ export function createWeatherClient(options: WeatherClientOptions = {}) {
       list<WindReading>("/regional/wind", init),
     getLampposts: (init?: RequestInit) =>
       list<LamppostReading>("/lampposts", init),
+    getAstronomicalTimes: (init?: RequestInit) =>
+      data<AstronomicalTimes>("/sun", init),
   };
 }
 

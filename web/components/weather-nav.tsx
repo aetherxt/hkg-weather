@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -13,37 +14,69 @@ const navigationItems = [
 export function WeatherNav() {
   const pathname = usePathname();
   const activePage = pathname.startsWith("/forecast") ? "forecast" : "home";
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const revealZoneHeight = 200;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const revealThreshold = window.innerHeight - revealZoneHeight;
+      setIsVisible(event.clientY >= revealThreshold);
+    };
+
+    const handlePointerLeave = () => {
+      setIsVisible(false);
+    };
+
+    setIsVisible(false);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerleave", handlePointerLeave);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerleave", handlePointerLeave);
+    };
+  }, [pathname]);
 
   return (
-    <nav
-      className="weather-nav"
-      aria-label="Primary navigation"
-      data-active-page={activePage}
-    >
-      <WeatherClouds />
+    <>
+      <div className="weather-nav-reveal-zone" aria-hidden="true" />
 
-      <div className="weather-nav-track">
-        <span className="weather-nav-selector" aria-hidden="true" />
+      <nav
+        className="weather-nav"
+        aria-label="Primary navigation"
+        data-active-page={activePage}
+        data-visible={isVisible ? "true" : undefined}
+        onBlurCapture={() => setIsVisible(false)}
+        onFocusCapture={() => setIsVisible(true)}
+        onPointerEnter={() => setIsVisible(true)}
+        onPointerLeave={() => setIsVisible(false)}
+      >
+        <WeatherClouds />
 
-        {navigationItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === item.href
-              : pathname.startsWith(item.href);
+        <div className="weather-nav-track">
+          <span className="weather-nav-selector" aria-hidden="true" />
 
-          return (
-            <Link
-              className="weather-nav-link"
-              href={item.href}
-              data-page={item.page}
-              aria-current={isActive ? "page" : undefined}
-              key={item.href}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
+          {navigationItems.map((item) => {
+            const isActive =
+              item.href === "/"
+                ? pathname === item.href
+                : pathname.startsWith(item.href);
+
+            return (
+              <Link
+                className="weather-nav-link"
+                href={item.href}
+                data-page={item.page}
+                aria-current={isActive ? "page" : undefined}
+                key={item.href}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    </>
   );
 }

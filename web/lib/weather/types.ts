@@ -227,6 +227,16 @@ export interface LamppostReading {
   reading: Record<string, unknown>;
 }
 
+export interface AstronomicalTimes {
+  date: string;
+  sunrise: string;
+  sunTransit: string;
+  sunset: string;
+  moonrise: string | null;
+  moonTransit: string | null;
+  moonset: string | null;
+}
+
 export interface RegionalObservations {
   temperature: ListResponse<TemperatureReading>;
   wind: ListResponse<WindReading>;

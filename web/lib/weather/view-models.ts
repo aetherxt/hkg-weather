@@ -33,6 +33,6 @@ export function currentWeatherViewModel(
     humidity: hkoHumidity?.value ?? data.humidity?.data[0]?.value ?? null,
     rainfall: mainRainfall?.max ?? firstRainfall?.max ?? null,
     uvIndex: uv?.value ?? null,
-    uvLevel: uv?.desc ?? null,
+    uvLevel: uv?.desc ? uv.desc.charAt(0).toUpperCase() + uv.desc.slice(1) : null,
   };
 }

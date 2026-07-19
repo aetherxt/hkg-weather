@@ -131,6 +131,16 @@ class TropicalCyclone(PublicModel):
     geo_json: dict[str, Any]
 
 
+class AstronomicalTimes(PublicModel):
+    date: str
+    sunrise: str
+    sun_transit: str
+    sunset: str
+    moonrise: str | None
+    moon_transit: str | None
+    moonset: str | None
+
+
 class ArchivedObservation(PublicModel):
     source_updated_at: datetime | None
     fetched_at: datetime

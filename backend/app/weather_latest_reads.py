@@ -15,14 +15,17 @@ from .internal_feeds import (
     load_ocf_stations,
 )
 from .official_feeds import (
+    ASTRONOMICAL_CSV_HEADER,
     CURRENT_WEATHER_DATASET,
     LOCAL_FORECAST_DATASET,
+    MOONRISE_MOONSET_DATASET,
     NINE_DAY_FORECAST_DATASET,
     REGIONAL_TEMPERATURE_DATASET,
     REGIONAL_WIND_DATASET,
     SMART_LAMPPOST_DATASET,
     SPECIAL_WEATHER_TIPS_DATASET,
     STATION_RAINFALL_DATASET,
+    SUNRISE_SUNSET_DATASET,
     TEMPERATURE_CSV_HEADER,
     TEMPERATURE_MISSING_VALUES,
     WARNING_INFORMATION_DATASET,
@@ -53,6 +56,7 @@ from .storage_read import (
     validate_stored_document,
 )
 from .weather_read_common import (
+    HONG_KONG,
     ReadDatabase,
     configured_station,
     list_response_meta,
@@ -63,6 +67,7 @@ from .weather_read_common import (
     set_latest_cache,
 )
 from .weather_read_models import (
+    AstronomicalTimes,
     DataResponse,
     LamppostReading,
     ListResponse,
@@ -438,6 +443,62 @@ async def get_lamppost(
         meta=response_meta(
             f"{SMART_LAMPPOST_DATASET}:{lamppost_id}:{device_id}",
             stored,
+        ),
+    )
+
+
+@router.get("/sun", response_model=DataResponse[AstronomicalTimes])
+async def get_sun(
+    response: Response,
+    database: ReadDatabase,
+) -> DataResponse[AstronomicalTimes]:
+    today = datetime.now(HONG_KONG).strftime("%Y-%m-%d")
+
+    sun_document = await read_latest_document(database, SUNRISE_SUNSET_DATASET)
+    sun_rows, sun_stored = decode_csv_rows(
+        sun_document,
+        SUNRISE_SUNSET_DATASET,
+        expected_columns=4,
+        expected_header=ASTRONOMICAL_CSV_HEADER,
+    )
+    moon_document = await read_latest_document(database, MOONRISE_MOONSET_DATASET)
+    moon_rows, moon_stored = decode_csv_rows(
+        moon_document,
+        MOONRISE_MOONSET_DATASET,
+        expected_columns=4,
+        expected_header=ASTRONOMICAL_CSV_HEADER,
+    )
+
+    try:
+        sun_row = next(
+            row for row in sun_rows if row[0].strip() == today
+        )
+        moon_row = next(
+            (row for row in moon_rows if row[0].strip() == today),
+            None,
+        )
+    except StopIteration:
+        raise reader_error(
+            status.HTTP_404_NOT_FOUND,
+            "Today's astronomical data not found",
+        )
+
+    set_latest_cache(response)
+    return DataResponse(
+        data=AstronomicalTimes(
+            date=today,
+            sunrise=sun_row[1].strip(),
+            sun_transit=sun_row[2].strip(),
+            sunset=sun_row[3].strip(),
+            moonrise=moon_row[1].strip() if moon_row and moon_row[1].strip() else None,
+            moon_transit=(
+                moon_row[2].strip() if moon_row and moon_row[2].strip() else None
+            ),
+            moonset=moon_row[3].strip() if moon_row and moon_row[3].strip() else None,
+        ),
+        meta=response_meta(
+            SUNRISE_SUNSET_DATASET,
+            sun_stored,
         ),
     )
 

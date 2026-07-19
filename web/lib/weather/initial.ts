@@ -1,6 +1,7 @@
 import type { WeatherClient } from "./client.ts";
 import { loadWeatherSection, type WeatherSectionState } from "./state.ts";
 import type {
+  AstronomicalTimes,
   CurrentWeather,
   LamppostReading,
   LocalForecast,
@@ -21,6 +22,7 @@ export const INITIAL_WEATHER_STALE_AFTER = {
   regionalTemperature: 30 * MINUTE,
   regionalWind: 30 * MINUTE,
   lampposts: 30 * MINUTE,
+  astronomical: 24 * HOUR,
 } as const;
 
 export interface InitialWeatherState {
@@ -31,6 +33,7 @@ export interface InitialWeatherState {
   regionalTemperature: WeatherSectionState<TemperatureReading[]>;
   regionalWind: WeatherSectionState<WindReading[]>;
   lampposts: WeatherSectionState<LamppostReading[]>;
+  astronomical: WeatherSectionState<AstronomicalTimes>;
 }
 
 export async function loadInitialWeather(
@@ -45,6 +48,7 @@ export async function loadInitialWeather(
     regionalTemperature,
     regionalWind,
     lampposts,
+    astronomical,
   ] = await Promise.all([
     loadWeatherSection(
       client.getWarnings,
@@ -81,6 +85,11 @@ export async function loadInitialWeather(
       INITIAL_WEATHER_STALE_AFTER.lampposts,
       now,
     ),
+    loadWeatherSection(
+      client.getAstronomicalTimes,
+      INITIAL_WEATHER_STALE_AFTER.astronomical,
+      now,
+    ),
   ]);
 
   return {
@@ -91,5 +100,6 @@ export async function loadInitialWeather(
     regionalTemperature,
     regionalWind,
     lampposts,
+    astronomical,
   };
 }

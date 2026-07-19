@@ -1,9 +1,11 @@
 import type { KeyboardEvent } from "react";
 
+import { WeatherClouds } from "@/components/weather-clouds";
 import type {
   WeatherDetailInteractionProps,
   WeatherDetailSection,
 } from "@/components/weather-detail-sections";
+import type { AstronomicalTimes } from "@/lib/weather/types";
 
 function formatUpdatedAt(iso: string) {
   const date = new Date(iso);
@@ -48,7 +50,7 @@ interface CurrentWeatherReportProps extends WeatherDetailInteractionProps {
 interface EnvironmentalConditionsProps extends WeatherDetailInteractionProps {
   uvIndex: number | null;
   uvLevel: string | null;
-  airQuality: string | null;
+  astronomical: AstronomicalTimes | null;
 }
 
 function selectSectionWithKeyboard(
@@ -100,31 +102,6 @@ function getUvTone(uvIndex: number) {
   return "extreme";
 }
 
-function getAirQualityTone(airQuality: string) {
-  const normalizedAirQuality = airQuality.toLowerCase();
-
-  if (
-    normalizedAirQuality.includes("serious") ||
-    normalizedAirQuality.includes("hazardous")
-  ) {
-    return "serious";
-  }
-
-  if (normalizedAirQuality.includes("very high")) return "very-high";
-  if (normalizedAirQuality.includes("high")) return "high";
-  if (normalizedAirQuality.includes("moderate")) return "moderate";
-  if (
-    normalizedAirQuality.includes("low") ||
-    normalizedAirQuality.includes("poor") ||
-    normalizedAirQuality.includes("unhealthy")
-  ) {
-    return "low";
-  }
-  if (normalizedAirQuality.includes("good")) return "high";
-
-  return "neutral";
-}
-
 export function CurrentWeatherReport({
   temperature,
   condition,
@@ -136,35 +113,41 @@ export function CurrentWeatherReport({
 }: CurrentWeatherReportProps) {
   return (
     <section className="current-weather" aria-label="Current weather">
-      <div className="current-weather-temperature-block">
-        <div
-          className="current-weather-temperature-row weather-data-trigger"
-          data-weather-trigger="temperature"
-          data-active={activeSection === "temperature" ? "true" : undefined}
-          aria-controls="weather-detail-temperature-content"
-          aria-expanded={activeSection === "temperature"}
-          aria-label="Open temperature details"
-          onClick={() => onSelectSection("temperature")}
-          onKeyDown={(event) =>
-            selectSectionWithKeyboard(event, "temperature", onSelectSection)
-          }
-          role="button"
-          tabIndex={0}
-        >
-          <p className="current-weather-temperature">
-            {temperature !== null ? (
-              <>
-                {temperature}
-                <span aria-hidden="true">°</span>
-                <span className="sr-only"> degrees Celsius</span>
-              </>
-            ) : (
-              <span className="current-weather-unavailable" aria-label="Unavailable">
-                --
-              </span>
-            )}
-          </p>
-          <span className="weather-row-chevron" aria-hidden="true" />
+      <div
+        className="current-weather-temperature-block"
+        data-condition-tone={condition ? getConditionTone(condition) : undefined}
+      >
+        <div className="current-weather-scene">
+          <WeatherClouds />
+          <div
+            className="current-weather-temperature-row weather-data-trigger"
+            data-weather-trigger="temperature"
+            data-active={activeSection === "temperature" ? "true" : undefined}
+            aria-controls="weather-detail-temperature-content"
+            aria-expanded={activeSection === "temperature"}
+            aria-label="Open temperature details"
+            onClick={() => onSelectSection("temperature")}
+            onKeyDown={(event) =>
+              selectSectionWithKeyboard(event, "temperature", onSelectSection)
+            }
+            role="button"
+            tabIndex={0}
+          >
+            <p className="current-weather-temperature">
+              {temperature !== null ? (
+                <>
+                  {temperature}
+                  <span aria-hidden="true">°</span>
+                  <span className="sr-only"> degrees Celsius</span>
+                </>
+              ) : (
+                <span className="current-weather-unavailable" aria-label="Unavailable">
+                  --
+                </span>
+              )}
+            </p>
+            <span className="weather-row-chevron" aria-hidden="true" />
+          </div>
         </div>
         {updatedAt && (
           <p className="current-weather-updated-at">
@@ -216,7 +199,7 @@ export function CurrentWeatherReport({
 export function EnvironmentalConditions({
   uvIndex,
   uvLevel,
-  airQuality,
+  astronomical,
   activeSection,
   onSelectSection,
 }: EnvironmentalConditionsProps) {
@@ -245,9 +228,17 @@ export function EnvironmentalConditions({
               <span className="current-weather-unavailable">Unavailable</span>
             )}
           </p>
-          <p data-air-quality-tone={airQuality ? getAirQualityTone(airQuality) : undefined}>
-            <span>Air quality</span>{" "}
-            {airQuality ?? (
+          <p className="current-weather-sun-row">
+            <span>Sun</span>{" "}
+            {astronomical !== null ? (
+              <>
+                {astronomical.sunrise}
+                <span className="sun-arrow-up" aria-hidden="true">↑</span>
+                <span className="sun-dot" aria-hidden="true">·</span>
+                {astronomical.sunset}
+                <span className="sun-arrow-down" aria-hidden="true">↓</span>
+              </>
+            ) : (
               <span className="current-weather-unavailable">Unavailable</span>
             )}
           </p>

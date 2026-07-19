@@ -1,0 +1,16 @@
+{
+  "data": {
+    "date": "2026-07-19",
+    "sunrise": "05:50",
+    "sunTransit": "12:30",
+    "sunset": "19:09",
+    "moonrise": "10:30",
+    "moonTransit": "16:38",
+    "moonset": "22:40"
+  },
+  "meta": {
+    "dataset": "sunrise_sunset",
+    "sourceUpdatedAt": null,
+    "fetchedAt": "2026-07-19T00:00:00Z"
+  }
+}
