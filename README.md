@@ -1,5 +1,6 @@
 # hkg-weather
 More detailed weather site for Hong Kong, based on HKO data
+https://hkgweather.vercel.app/
 
 ## Local development
 
@@ -194,6 +195,11 @@ one-year immutable caching.
 
 All ingestion routes use `POST`, require
 `Authorization: Bearer <CRON_SECRET>`, and return `Cache-Control: no-store`.
+JSON, CSV, KML and PNG sources share the ingestion core in
+`backend/app/ingestion.py`; format-specific modules validate each response and
+provide archive metadata before the core hashes and stores it. Archive records
+include a document identity and use either content-addressed or 30-minute
+slot-addressed deduplication, depending on the dataset.
 
 | Route | Data stored |
 |---|---|
@@ -204,6 +210,7 @@ All ingestion routes use `POST`, require
 | `/api/cron/station-rainfall` | Past-hour station rainfall, latest plus 3-day archive |
 | `/api/cron/rainfall-nowcast` | Complete latest CSV and first two forecast periods in one archive slot per 30 minutes |
 | `/api/cron/regional-weather` | Regional temperature and wind/gust CSVs, latest plus 3-day archive |
+| `/api/cron/astronomical-times` | Complete current-year sunrise/sunset and moonrise/moonset CSVs, latest only |
 | `/api/cron/smart-lampposts` | One latest and archived document per configured device |
 | `/api/cron/ocf-station-forecasts` | One latest and 3-day archived OCF forecast per configured station |
 | `/api/cron/earth-weather-cycles` | Latest cycle metadata for each configured Earth Weather model |
@@ -233,17 +240,35 @@ HTTP 502 if any group fails. Its response still includes every group so one
 failure does not hide the remaining test results. Continue scheduling the
 individual source routes in cron-job.org; the batch route is for manual tests.
 
+Run the core post-deployment ingestion and read smoke test from the repository
+root with:
+
+```bash
+backend/.venv/bin/python backend/scripts/verify_deployment.py
+```
+
+The verifier targets `https://hkgweather.vercel.app` and reads `CRON_SECRET`
+from the repository-level `.env.local`, falling back to `web/.env.local` to
+match the application configuration. It checks application health, runs
+`ingest-all`, confirms that the current-weather reader returns the document
+just written, decodes a numerical nowcast grid, and verifies the radar PNG and
+ETag response. It exits with status 1 if any check fails. Use `--skip-ingest`
+to test only the public readers.
+
 The smart-lamppost route validates and loads the JSON configuration when it is
 called. Changes take effect after the updated application is deployed.
 
 ### Bulk-configure cron-job.org
 
 Use the included configurator instead of editing every cron job manually. It
-selects only jobs whose URL starts with
+creates the yearly `Astronomical Times` job when it is absent, then selects
+jobs whose URL starts with
 `https://hkgweather.vercel.app/api/cron/`, always excludes `ingest-all`, merges
 the application Bearer header with existing custom headers, changes the method
 to `POST`, and enables saved responses. Schedules, enabled states and
-notifications are not changed.
+notifications are not changed. The astronomical job is enabled with timezone
+`Asia/Hong_Kong` and runs at 01:15 on January 1 each year; if that job already
+exists, the configurator repairs its schedule as well as its request settings.
 
 First create an API key in cron-job.org. Run a dry-run from the repository root:
 
@@ -273,6 +298,19 @@ Run the isolated backend checks with:
 ```bash
 cd backend
 source .venv/bin/activate
-ruff check app tests
+ruff check app scripts tests
 pytest -q
 ```
+
+Run the fixture-only frontend tests, lint, type check and production build with:
+
+```bash
+cd web
+npm run verify
+```
+
+The frontend tests use checked-in normalized application API responses from
+`web/fixtures/weather`; they do not call live HKO or MongoDB services. The
+page-facing server loader lives in `web/lib/weather/server.ts`, while browser
+timeline, station-selection and map interactions should use the same typed
+client without importing that server module.

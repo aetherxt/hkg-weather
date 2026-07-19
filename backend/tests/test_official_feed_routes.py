@@ -101,6 +101,11 @@ def test_all_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         main,
+        "ingest_astronomical_times",
+        AsyncMock(return_value=batch),
+    )
+    monkeypatch.setattr(
+        main,
         "ingest_smart_lampposts",
         AsyncMock(return_value=batch),
     )
@@ -137,6 +142,7 @@ def test_all_feed_cron_routes(monkeypatch: pytest.MonkeyPatch) -> None:
         "/api/cron/station-rainfall": "station_rainfall",
         "/api/cron/rainfall-nowcast": "gridded_rainfall_nowcast",
         "/api/cron/regional-weather": "batch_item",
+        "/api/cron/astronomical-times": "batch_item",
         "/api/cron/smart-lampposts": "batch_item",
         "/api/cron/ocf-station-forecasts": "batch_item",
         "/api/cron/earth-weather-cycles": "batch_item",
@@ -189,6 +195,7 @@ def test_ingest_all_route_returns_each_job_result(
     for name in (
         "ingest_warnings",
         "ingest_regional_weather",
+        "ingest_astronomical_times",
         "ingest_smart_lampposts",
         "ingest_ocf_station_forecasts",
         "ingest_earth_weather_cycles",
@@ -211,7 +218,7 @@ def test_ingest_all_route_returns_each_job_result(
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["ok"] is True
-        assert len(body["jobs"]) == 13
+        assert len(body["jobs"]) == 14
         assert body["jobs"][-1] == {
             "job": "tropical_cyclones",
             "ok": True,

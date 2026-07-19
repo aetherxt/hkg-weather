@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "observedAt": "2026-07-18T17:50:00+08:00",
+      "station": "Central Pier",
+      "meanWindDirection": "South",
+      "meanWindSpeedKmh": 8,
+      "maximumGustKmh": 19
+    },
+    {
+      "observedAt": "2026-07-18T17:50:00+08:00",
+      "station": "Chek Lap Kok",
+      "meanWindDirection": "South",
+      "meanWindSpeedKmh": 14,
+      "maximumGustKmh": 21
+    }
+  ],
+  "meta": {
+    "dataset": "regional_wind",
+    "sourceUpdatedAt": "2026-07-18T09:50:00Z",
+    "fetchedAt": "2026-07-18T10:00:16.922000Z",
+    "count": 2
+  }
+}

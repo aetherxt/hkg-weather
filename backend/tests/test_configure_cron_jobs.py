@@ -3,8 +3,11 @@ from pathlib import Path
 import httpx
 
 from scripts.configure_cron_jobs import (
+    ASTRONOMICAL_JOB_SCHEDULE,
+    astronomical_job_url,
     matching_jobs,
     parse_env_file,
+    plan_astronomical_creation,
     plan_update,
     response_detail,
 )
@@ -87,6 +90,61 @@ def test_plan_update_reports_already_configured() -> None:
     }
 
     assert plan_update(job, "current-secret").changes == ()
+
+
+def test_plan_astronomical_creation_builds_annual_hong_kong_job() -> None:
+    prefix = "https://hkgweather.vercel.app/api/cron/"
+
+    creation = plan_astronomical_creation([], prefix, "cron-secret")
+
+    assert creation is not None
+    assert creation.url == f"{prefix}astronomical-times"
+    assert creation.payload == {
+        "job": {
+            "title": "Astronomical Times",
+            "url": f"{prefix}astronomical-times",
+            "enabled": True,
+            "saveResponses": True,
+            "requestMethod": 1,
+            "schedule": ASTRONOMICAL_JOB_SCHEDULE,
+            "extendedData": {
+                "headers": {"Authorization": "Bearer cron-secret"},
+                "body": "",
+            },
+        }
+    }
+
+
+def test_plan_astronomical_creation_skips_existing_job() -> None:
+    prefix = "https://hkgweather.vercel.app/api/cron/"
+    jobs = [{"url": f"{prefix}astronomical-times/"}]
+
+    assert plan_astronomical_creation(jobs, prefix, "secret") is None
+
+
+def test_plan_update_repairs_astronomical_schedule() -> None:
+    url = astronomical_job_url("https://hkgweather.vercel.app/api/cron/")
+    job = {
+        "jobId": 123,
+        "title": "Astronomical Times",
+        "url": url,
+        "requestMethod": 1,
+        "saveResponses": True,
+        "schedule": {"timezone": "UTC"},
+        "extendedData": {
+            "headers": {"Authorization": "Bearer current-secret"},
+            "body": "",
+        },
+    }
+
+    update = plan_update(
+        job,
+        "current-secret",
+        expected_schedule=ASTRONOMICAL_JOB_SCHEDULE,
+    )
+
+    assert update.changes == ("set annual Hong Kong schedule",)
+    assert update.patch["job"]["schedule"] == ASTRONOMICAL_JOB_SCHEDULE
 
 
 def test_response_detail_reports_dataset_count() -> None:

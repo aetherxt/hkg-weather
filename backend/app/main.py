@@ -51,6 +51,7 @@ from .official_feeds import (
     DatasetIngestionResponse,
     DatasetIngestionStatus,
     SmartLamppostIngestionResponse,
+    ingest_astronomical_times,
     ingest_current_weather,
     ingest_gridded_rainfall,
     ingest_local_forecast,
@@ -180,6 +181,7 @@ def ingestion_jobs() -> tuple[IngestionJobDefinition, ...]:
             ),
         ),
         IngestionJobDefinition("regional_weather", ingest_regional_weather),
+        IngestionJobDefinition("astronomical_times", ingest_astronomical_times),
         IngestionJobDefinition("smart_lampposts", _smart_lamppost_job),
         IngestionJobDefinition("ocf_station_forecasts", _ocf_station_job),
         IngestionJobDefinition("earth_weather_cycles", ingest_earth_weather_cycles),
@@ -447,6 +449,22 @@ async def cron_regional_weather(
     response.headers["Cache-Control"] = "no-store"
     return BatchIngestionResponse(
         datasets=await ingest_regional_weather(database, client),
+    )
+
+
+@app.post(
+    "/api/cron/astronomical-times",
+    response_model=BatchIngestionResponse,
+)
+async def cron_astronomical_times(
+    response: Response,
+    _authorization: Annotated[None, Depends(require_cron_secret)],
+    database: Annotated[AsyncDatabase, Depends(get_ingestion_database)],
+    client: Annotated[httpx.AsyncClient, Depends(get_http_client)],
+) -> BatchIngestionResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return BatchIngestionResponse(
+        datasets=await ingest_astronomical_times(database, client),
     )
 
 

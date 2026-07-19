@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "observedAt": "2026-07-18T17:50:00+08:00",
+      "station": "Chek Lap Kok",
+      "temperatureC": 30.9
+    },
+    {
+      "observedAt": "2026-07-18T17:50:00+08:00",
+      "station": "Cheung Chau",
+      "temperatureC": 28.1
+    }
+  ],
+  "meta": {
+    "dataset": "regional_temperature",
+    "sourceUpdatedAt": "2026-07-18T09:50:00Z",
+    "fetchedAt": "2026-07-18T10:00:15.528000Z",
+    "count": 2
+  }
+}

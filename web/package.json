@@ -2,11 +2,15 @@
   "name": "web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "type-check": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node .test-dist/lib/weather/test.js",
+    "verify": "npm run lint && npm run type-check && npm test && npm run build"
   },
   "dependencies": {
     "next": "16.2.10",

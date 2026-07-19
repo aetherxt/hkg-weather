@@ -1,0 +1,33 @@
+{
+  "data": {
+    "summary": {
+      "WTS": {
+        "name": "Thunderstorm Warning",
+        "code": "WTS",
+        "actionCode": "CANCEL",
+        "issueTime": "2026-07-18T14:20:00+08:00",
+        "expireTime": "2026-07-18T17:10:00+08:00",
+        "updateTime": "2026-07-18T17:10:00+08:00"
+      }
+    },
+    "information": {
+      "details": [
+        {
+          "contents": [
+            "Thunderstorm Warning was cancelled at 5:10 p.m. on 18 Jul 2026."
+          ],
+          "warningStatementCode": "WTS",
+          "updateTime": "2026-07-18T17:10:00+08:00"
+        }
+      ]
+    },
+    "specialWeatherTips": {
+      "swt": []
+    }
+  },
+  "meta": {
+    "dataset": "warnings",
+    "sourceUpdatedAt": "2026-07-18T09:10:00Z",
+    "fetchedAt": "2026-07-18T10:00:17.975000Z"
+  }
+}

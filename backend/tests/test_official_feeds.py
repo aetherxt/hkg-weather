@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -11,8 +11,10 @@ from app.official_feeds import (
     WARNING_SUMMARY_SPEC,
     WIND_CSV_HEADER,
     SmartLamppostObservation,
+    astronomical_times_specs,
     load_smart_lamppost_devices,
     smart_lamppost_spec,
+    validate_astronomical_times_csv,
     validate_gridded_rainfall_csv,
     validate_temperature_csv,
     validate_wind_csv,
@@ -24,6 +26,26 @@ GRIDDED_RAINFALL_HEADER_TEXT = ",".join(GRIDDED_RAINFALL_HEADER) + "\n"
 GRIDDED_RAINFALL_HEADER_BYTES = GRIDDED_RAINFALL_HEADER_TEXT.encode()
 WIND_HEADER_TEXT = ",".join(WIND_CSV_HEADER) + "\n"
 WIND_HEADER_BYTES = WIND_HEADER_TEXT.encode()
+
+
+def astronomical_csv(
+    year: int,
+    *,
+    moon: bool = False,
+    replace: tuple[date, str] | None = None,
+) -> bytes:
+    lines = ["YYYY-MM-DD,RISE,TRAN.,SET"]
+    current = date(year, 1, 1)
+    end = date(year + 1, 1, 1)
+    while current < end:
+        values = "06:30,12:15,18:00"
+        if moon and current.day == 3:
+            values = "17:41,,06:50"
+        if replace is not None and current == replace[0]:
+            values = replace[1]
+        lines.append(f"{current.isoformat()},{values}")
+        current += timedelta(days=1)
+    return ("\n".join(lines) + "\n").encode()
 
 
 def test_official_json_specs_extract_source_times_and_retention() -> None:
@@ -42,6 +64,60 @@ def test_official_json_specs_extract_source_times_and_retention() -> None:
     tips = SPECIAL_WEATHER_TIPS_SPEC.payload_model.model_validate_json('{"swt": []}')
     assert SPECIAL_WEATHER_TIPS_SPEC.source_updated_at(tips) is None
     assert SPECIAL_WEATHER_TIPS_SPEC.archive_retention is None
+
+
+def test_astronomical_specs_use_selected_year_and_latest_only() -> None:
+    solar, lunar = astronomical_times_specs(2028)
+
+    assert "dataType=SRS" in solar.url
+    assert "year=2028" in solar.url
+    assert "dataType=MRS" in lunar.url
+    assert solar.archive_retention is None
+    assert lunar.archive_retention is None
+
+
+def test_astronomical_csv_validates_complete_year_and_lunar_blanks() -> None:
+    solar = validate_astronomical_times_csv(
+        astronomical_csv(2026),
+        year=2026,
+        allow_missing_times=False,
+    )
+    lunar = validate_astronomical_times_csv(
+        astronomical_csv(2028, moon=True),
+        year=2028,
+        allow_missing_times=True,
+    )
+
+    assert solar.metadata == {"year": 2026, "row_count": 365}
+    assert lunar.metadata == {"year": 2028, "row_count": 366}
+    assert solar.source_updated_at is None
+
+
+def test_astronomical_csv_rejects_missing_date() -> None:
+    raw = astronomical_csv(2026).decode().splitlines()
+    del raw[10]
+
+    with pytest.raises(ValueError, match="incomplete or out of order"):
+        validate_astronomical_times_csv(
+            ("\n".join(raw) + "\n").encode(),
+            year=2026,
+            allow_missing_times=False,
+        )
+
+
+@pytest.mark.parametrize("invalid_time", ["24:00", "6:30", "noon", ""])
+def test_solar_astronomical_csv_rejects_invalid_times(invalid_time: str) -> None:
+    raw = astronomical_csv(
+        2026,
+        replace=(date(2026, 1, 2), f"{invalid_time},12:15,18:00"),
+    )
+
+    with pytest.raises(ValueError, match="missing time|invalid time"):
+        validate_astronomical_times_csv(
+            raw,
+            year=2026,
+            allow_missing_times=False,
+        )
 
 
 def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:

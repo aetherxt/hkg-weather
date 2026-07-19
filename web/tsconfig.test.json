@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": false,
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "incremental": false,
+    "isolatedModules": false,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    "lib/weather/client.ts",
+    "lib/weather/client.test.ts",
+    "lib/weather/initial.ts",
+    "lib/weather/initial.test.ts",
+    "lib/weather/state.ts",
+    "lib/weather/test-helpers.ts",
+    "lib/weather/test.ts",
+    "lib/weather/types.ts"
+  ],
+  "exclude": ["node_modules", ".next", ".test-dist"]
+}

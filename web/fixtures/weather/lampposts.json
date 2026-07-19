@@ -1,0 +1,102 @@
+{
+  "data": [
+    {
+      "lamppostId": "50148",
+      "deviceId": "01",
+      "label": "Central",
+      "latitude": 22.282267,
+      "longitude": 114.16499,
+      "reading": {
+        "pi": "50148",
+        "di": "01",
+        "body": {
+          "hko": {
+            "vn": "02",
+            "t0": "30.2",
+            "rh": "78",
+            "ws": "12.5",
+            "wd": "180",
+            "dh": "3.5",
+            "ts": "20260718175000",
+            "tp": "20260718175500"
+          }
+        }
+      }
+    },
+    {
+      "lamppostId": "27357",
+      "deviceId": "01",
+      "label": "Wan Chai",
+      "latitude": 22.280797,
+      "longitude": 114.174429,
+      "reading": {
+        "pi": "27357",
+        "di": "01",
+        "body": {
+          "hko": {
+            "vn": "02",
+            "t0": "29.8",
+            "rh": "81",
+            "ws": "8.2",
+            "wd": "170",
+            "dh": "3.5",
+            "ts": "20260718175000",
+            "tp": "20260718175500"
+          }
+        }
+      }
+    },
+    {
+      "lamppostId": "AB3301",
+      "deviceId": "01",
+      "label": "Tsim Sha Tsui / Jordan",
+      "latitude": 22.29398,
+      "longitude": 114.169104,
+      "reading": {
+        "pi": "AB3301",
+        "di": "01",
+        "body": {
+          "hko": {
+            "vn": "02",
+            "t0": "31.1",
+            "rh": "74",
+            "ws": "6.7",
+            "wd": "190",
+            "dh": "3.5",
+            "ts": "20260718175000",
+            "tp": "20260718175500"
+          }
+        }
+      }
+    },
+    {
+      "lamppostId": "DF3644",
+      "deviceId": "01",
+      "label": "Kowloon Bay / Choi Hung",
+      "latitude": 22.331034,
+      "longitude": 114.20464,
+      "reading": {
+        "pi": "DF3644",
+        "di": "01",
+        "body": {
+          "hko": {
+            "vn": "02",
+            "t0": "30.5",
+            "rh": "76",
+            "ws": "10.1",
+            "wd": "175",
+            "dh": "3.5",
+            "ts": "20260718175000",
+            "tp": "20260718175500"
+          }
+        }
+      }
+    }
+  ],
+  "meta": {
+    "dataset": "smart_lamppost",
+    "sourceUpdatedAt": "2026-07-18T09:50:00Z",
+    "fetchedAt": "2026-07-18T10:00:18.635000Z",
+    "count": 4
+  }
+}

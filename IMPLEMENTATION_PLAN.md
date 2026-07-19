@@ -113,6 +113,7 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 - Smart-lamppost meteorological observations
 - Latest one-minute mean regional air temperature
 - Latest ten-minute mean regional wind direction, wind speed and maximum gust
+- Yearly sunrise, sunset, moonrise and moonset tables
 
 Catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 
@@ -227,6 +228,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Smart-lamppost observations | Raw JSON for the devices selected in `backend/app/data/smart_lamppost_devices.json`: `50148:01` (Central), `27357:01` (Wan Chai), `AB3301:01` (Tsim Sha Tsui/Jordan) and `DF3644:01` (Kowloon Bay/Choi Hung) | Save each new measurement time; also maintain latest | 3 days |
 | Regional one-minute mean temperature | Raw CSV | Save each new source time; also maintain latest | 3 days |
 | Regional wind, speed and maximum gust | Raw CSV; recognize HKO's observed six-field calm-row anomaly during validation and normalize it in the public adapter while preserving original bytes | Save each new source time; also maintain latest | 3 days |
+| Sunrise, sunset, moonrise and moonset | Two complete raw yearly CSV tables (`SRS` and `MRS`) | Replace the latest documents when the selected calendar year or upstream content changes | Latest only |
 | OCF nine-day station forecasts | Raw JSON response per configured station | Save each new model time; also maintain latest per station | 3 days |
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
@@ -266,7 +268,7 @@ hkg-weather/
 │   │   ├── internal_feeds.py            # OCF, Earth Weather, radar and cyclone feeds
 │   │   ├── ingestion.py                 # Shared fetch, storage and archive pipeline
 │   │   ├── json_ingestion.py            # JSON validation adapter
-│   │   ├── main.py                      # FastAPI entrypoint and HTTP routes
+│   │   ├── main.py                      # FastAPI entrypoint, health and ingestion routes
 │   │   ├── official_feeds.py            # Documented HKO feed definitions
 │   │   ├── rainfall_nowcast.py           # Gridded-rainfall parser and validator
 │   │   ├── raw_ingestion.py             # Raw-payload validation adapter
@@ -286,7 +288,8 @@ hkg-weather/
 │   ├── scripts/
 │   │   ├── __init__.py                  # Script package
 │   │   ├── check_database.py            # Local MongoDB connectivity check
-│   │   └── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
+│   │   ├── configure_cron_jobs.py       # Bulk cron-job.org setup and testing
+│   │   └── verify_deployment.py          # Deployed ingestion/read smoke test
 │   ├── tests/
 │   │   ├── test_auth.py
 │   │   ├── test_configure_cron_jobs.py
@@ -299,6 +302,7 @@ hkg-weather/
 │   │   ├── test_official_feeds.py
 │   │   ├── test_raw_ingestion.py
 │   │   ├── test_storage.py
+│   │   ├── test_verify_deployment.py
 │   │   └── test_weather_read_routes.py
 │   ├── pytest.ini                       # Pytest configuration
 │   ├── requirements.txt                 # Production dependencies

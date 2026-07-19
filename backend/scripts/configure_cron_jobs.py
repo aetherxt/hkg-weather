@@ -16,6 +16,17 @@ API_ROOT = "https://api.cron-job.org"
 DEFAULT_JOB_PREFIX = "https://hkgweather.vercel.app/api/cron/"
 POST_METHOD = 1
 MINIMUM_REQUEST_INTERVAL_SECONDS = 0.25
+ASTRONOMICAL_JOB_TITLE = "Astronomical Times"
+ASTRONOMICAL_JOB_PATH = "astronomical-times"
+ASTRONOMICAL_JOB_SCHEDULE = {
+    "timezone": "Asia/Hong_Kong",
+    "expiresAt": 0,
+    "hours": [1],
+    "mdays": [1],
+    "minutes": [15],
+    "months": [1],
+    "wdays": [-1],
+}
 METHOD_NAMES = {
     0: "GET",
     1: "POST",
@@ -40,6 +51,13 @@ class JobUpdate:
     url: str
     changes: tuple[str, ...]
     patch: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class JobCreation:
+    title: str
+    url: str
+    payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -110,7 +128,12 @@ def matching_jobs(
     return sorted(matches, key=lambda job: str(job.get("title", "")).lower())
 
 
-def plan_update(job: dict[str, Any], cron_secret: str) -> JobUpdate:
+def plan_update(
+    job: dict[str, Any],
+    cron_secret: str,
+    *,
+    expected_schedule: dict[str, Any] | None = None,
+) -> JobUpdate:
     try:
         job_id = int(job["jobId"])
         title = str(job["title"])
@@ -154,23 +177,60 @@ def plan_update(job: dict[str, Any], cron_secret: str) -> JobUpdate:
         )
     if job.get("saveResponses") is not True:
         changes.append("enable saved responses")
+    if expected_schedule is not None and job.get("schedule") != expected_schedule:
+        changes.append("set annual Hong Kong schedule")
 
-    patch = {
-        "job": {
-            "requestMethod": POST_METHOD,
-            "saveResponses": True,
-            "extendedData": {
-                "headers": merged_headers,
-                "body": str(extended_data.get("body", "")),
-            },
-        }
+    job_patch = {
+        "requestMethod": POST_METHOD,
+        "saveResponses": True,
+        "extendedData": {
+            "headers": merged_headers,
+            "body": str(extended_data.get("body", "")),
+        },
     }
+    if expected_schedule is not None:
+        job_patch["schedule"] = expected_schedule
+    patch = {"job": job_patch}
     return JobUpdate(
         job_id=job_id,
         title=title,
         url=url,
         changes=tuple(changes),
         patch=patch,
+    )
+
+
+def astronomical_job_url(job_prefix: str) -> str:
+    return f"{job_prefix.rstrip('/')}/{ASTRONOMICAL_JOB_PATH}"
+
+
+def plan_astronomical_creation(
+    jobs: list[dict[str, Any]],
+    job_prefix: str,
+    cron_secret: str,
+) -> JobCreation | None:
+    url = astronomical_job_url(job_prefix)
+    if any(str(job.get("url", "")).rstrip("/") == url for job in jobs):
+        return None
+    return JobCreation(
+        title=ASTRONOMICAL_JOB_TITLE,
+        url=url,
+        payload={
+            "job": {
+                "title": ASTRONOMICAL_JOB_TITLE,
+                "url": url,
+                "enabled": True,
+                "saveResponses": True,
+                "requestMethod": POST_METHOD,
+                "schedule": ASTRONOMICAL_JOB_SCHEDULE,
+                "extendedData": {
+                    "headers": {
+                        "Authorization": f"Bearer {cron_secret}",
+                    },
+                    "body": "",
+                },
+            }
+        },
     )
 
 
@@ -229,6 +289,15 @@ class CronJobClient:
 
     def patch_job(self, update: JobUpdate) -> None:
         self._request("PATCH", f"/jobs/{update.job_id}", payload=update.patch)
+
+    def create_job(self, creation: JobCreation) -> int:
+        response = self._request("PUT", "/jobs", payload=creation.payload)
+        try:
+            return int(response["jobId"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise CronJobApiError(
+                "cron-job.org returned an invalid job creation response"
+            ) from error
 
 
 def response_detail(response: httpx.Response) -> str:
@@ -297,8 +366,8 @@ def run_configured_jobs(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Configure this project's cron-job.org jobs to use POST and the "
-            "application Bearer secret. Dry-run is the default."
+            "Create required cron-job.org jobs and configure project jobs to "
+            "use POST and the application Bearer secret. Dry-run is the default."
         )
     )
     parser.add_argument(
@@ -348,22 +417,44 @@ def main() -> int:
     try:
         listed_jobs = client.list_jobs()
         selected_jobs = matching_jobs(listed_jobs, args.job_prefix)
-        if not selected_jobs:
+        creation = plan_astronomical_creation(
+            listed_jobs,
+            args.job_prefix,
+            cron_secret,
+        )
+        if not selected_jobs and creation is None:
             print(f"No jobs matched {args.job_prefix}")
             return 1
 
-        updates = [
-            plan_update(client.get_job(int(job["jobId"])), cron_secret)
-            for job in selected_jobs
-        ]
+        updates = []
+        astronomical_url = astronomical_job_url(args.job_prefix)
+        for job in selected_jobs:
+            details = client.get_job(int(job["jobId"]))
+            expected_schedule = (
+                ASTRONOMICAL_JOB_SCHEDULE
+                if str(details.get("url", "")).rstrip("/") == astronomical_url
+                else None
+            )
+            updates.append(
+                plan_update(
+                    details,
+                    cron_secret,
+                    expected_schedule=expected_schedule,
+                )
+            )
         pending = [update for update in updates if update.changes]
 
         print(f"Matched {len(updates)} jobs (ingest-all is always excluded).")
         for update in updates:
             description = ", ".join(update.changes) or "already configured"
             print(f"- {update.title}: {description}")
+        if creation is not None:
+            print(
+                f"- {creation.title}: create enabled annual job at "
+                "01:15 Asia/Hong_Kong on January 1"
+            )
 
-        if not pending:
+        if not pending and creation is None:
             print("No configuration changes are required.")
         if not args.apply:
             print("\nDry run only. Re-run with --apply to update these jobs.")
@@ -371,8 +462,13 @@ def main() -> int:
 
         if not args.yes:
             action = f"apply changes to {len(pending)} jobs"
+            if creation is not None:
+                action += " and create 1 job"
             if not args.no_run:
-                action += f" and run all {len(updates)} matched endpoints"
+                action += (
+                    f" and run all {len(updates) + int(creation is not None)} "
+                    "configured endpoints"
+                )
             confirmation = input(f"Proceed: {action}? [y/N] ")
             if confirmation.strip().lower() != "y":
                 print("No changes applied.")
@@ -382,7 +478,23 @@ def main() -> int:
             client.patch_job(update)
             print(f"Updated {update.title}")
 
-        print(f"Successfully updated {len(pending)} jobs.")
+        if creation is not None:
+            job_id = client.create_job(creation)
+            updates.append(
+                JobUpdate(
+                    job_id=job_id,
+                    title=creation.title,
+                    url=creation.url,
+                    changes=(),
+                    patch={},
+                )
+            )
+            print(f"Created {creation.title}")
+
+        print(
+            f"Successfully updated {len(pending)} jobs and created "
+            f"{int(creation is not None)} jobs."
+        )
 
         if args.no_run:
             return 0

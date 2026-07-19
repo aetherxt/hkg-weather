@@ -1,0 +1,16 @@
+{
+  "data": {
+    "generalSituation": "Showers and thunderstorms associated with a broad trough of low pressure are affecting the coast of Guangdong and the northern part of the South China Sea.",
+    "tcInfo": "",
+    "fireDangerWarning": "",
+    "forecastPeriod": "Weather forecast for tonight and tomorrow",
+    "forecastDesc": "Mainly cloudy with a few showers and thunderstorms. More showers in some areas at first tomorrow. Temperatures will range between 27 and 30 degrees. Moderate southwesterly winds.",
+    "outlook": "There will still be occasional showers on Monday and Tuesday. Showers will ease off on Wednesday. Becoming very hot in the following couple of days.",
+    "updateTime": "2026-07-18T17:45:00+08:00"
+  },
+  "meta": {
+    "dataset": "local_forecast",
+    "sourceUpdatedAt": "2026-07-18T09:45:00Z",
+    "fetchedAt": "2026-07-18T10:00:15.549000Z"
+  }
+}

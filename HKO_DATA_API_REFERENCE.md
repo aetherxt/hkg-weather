@@ -3,6 +3,96 @@
 Last reviewed: 18 July 2026
 Primary catalogue: <https://www.hko.gov.hk/en/abouthko/opendata_intro.htm>
 
+## Plain-language data source overview
+
+Past-hour station rainfall returns the amount of rain recorded during the
+previous hour at each reporting automatic weather station. It includes the
+observation time, station name and ID, rainfall in millimetres, and a missing
+value marker when no reading is available.
+
+The gridded rainfall nowcast returns a CSV rainfall forecast for a geographic
+grid covering Hong Kong and nearby areas. Each row identifies a latitude,
+longitude, forecast issue time, forecast valid time, and expected rainfall.
+Together, the rows form a sequence of forecast maps at 30-minute intervals for
+the next two hours.
+
+The current weather report returns the latest general Hong Kong conditions. It
+includes regional temperatures, humidity, rainfall, UV information when
+available, weather icons, warning messages, and the report update time.
+
+The local weather forecast returns HKO's written forecast for Hong Kong. It
+includes the general situation, the forecast for today or tonight, the outlook
+for the following days, and the forecast update time.
+
+The official nine-day forecast returns one daily forecast for each of the next
+nine days. Each day can include minimum and maximum temperature, minimum and
+maximum relative humidity, wind, weather description, weather icon, and the
+qualitative probability of significant rain.
+
+Weather warning information returns the full text of active warning
+bulletins, including the warning name, issue time, details, and safety advice.
+It is the source to use when the complete warning message must be displayed.
+
+The weather warning summary returns a compact list of warning states. It
+identifies which warnings are active, their warning codes or levels, and their
+issue or update times. It is suited to badges and status indicators rather
+than full bulletin text.
+
+Special weather tips returns short advisory messages issued by HKO that may
+not be formal warnings. The response contains the current tips and their
+update times, or an empty list when there are no tips.
+
+Smart-lamppost meteorological observations return the latest processed
+10-minute reading for one selected lamppost device. Depending on the device,
+the response can include air temperature, relative humidity, mean wind speed,
+wind direction, device height, and measurement time. Separate lookup files
+describe available lamppost locations, devices, and measurement elements.
+
+The regional one-minute temperature source returns a CSV row for each
+reporting automatic weather station. Each row contains the observation time,
+station name, and latest one-minute mean air temperature in degrees Celsius.
+
+The regional ten-minute wind source returns a CSV row for each reporting
+automatic weather station. Each row contains the observation time, station
+name, mean wind direction, mean wind speed, and maximum gust in kilometres per
+hour.
+
+The yearly astronomical tables provide one row per calendar date. The `SRS`
+table contains sunrise, sun-transit and sunset times; the `MRS` table contains
+moonrise, moon-transit and moonset times. Lunar event fields can legitimately
+be blank on dates when that event does not occur during the local calendar day.
+
+The OCF nine-day station forecast returns an automatic forecast for one
+selected Hong Kong station. It includes hourly temperature, humidity, wind
+direction, and wind speed; weather icons at regular intervals; and daily
+minimum and maximum temperature and probability of rain. Although its filename
+ends in `.xml`, the response body is JSON.
+
+The Earth Weather model-cycle sources return the latest available forecast
+base time for each supported numerical weather model. The associated model
+raster sources return encoded PNG map layers for fields such as rainfall,
+temperature, humidity, wind, gust, and pressure where the model supports them.
+These PNGs are display assets, not directly usable numerical grids.
+
+The Earth Weather automatic city forecast returns forecasts for multiple
+cities or stations in one large JSON response. It can include location
+details and forecast temperature, humidity, wind, cloud, pressure, visibility,
+and weather icons for a series of forecast times.
+
+The 128 km radar source first returns a KML index of available radar frames.
+Each index entry supplies an observation time, a PNG image path, and geographic
+bounds. Following the image path returns the actual radar PNG that can be
+placed on a map using those bounds.
+
+The active tropical-cyclone source first returns the list of cyclones with a
+current HKO product, or `NIL` when none are active. Each listed cyclone has a
+separate KML track response containing its geographic path and descriptive
+feature information.
+
+The documented open-data sources above are the preferred production sources.
+OCF, Earth Weather, radar, and tropical-cyclone website assets are internal HKO
+interfaces and may change without notice.
+
 ## 1. Purpose and scope
 
 This document describes how to call and interpret the following Hong Kong Observatory (HKO) datasets:
@@ -19,6 +109,7 @@ This document describes how to call and interpret the following Hong Kong Observ
 - regional weather products:
   - latest 1-minute mean air temperature;
   - latest 10-minute mean wind direction, wind speed and maximum gust;
+- yearly sunrise, sunset, moonrise and moonset times;
 - internal Automatic Regional Weather Forecast (OCF) products:
   - nine-day station forecast, including hourly temperature and daily probability of precipitation;
 - prediction-model products displayed by HKO Earth Weather:
@@ -122,6 +213,8 @@ data = response.json()
 | Smart lamppost | JSON | `https://data.weather.gov.hk/weatherAPI/smart-lamppost/smart-lamppost.php?pi={lamppost}&di={device}` |
 | 1-minute temperature | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_1min_temperature.csv` |
 | 10-minute wind and gust | CSV | `https://data.weather.gov.hk/weatherAPI/hko_data/regional-weather/latest_10min_wind.csv` |
+| Sunrise, sun transit and sunset | CSV | `https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=SRS&year={year}&rformat=csv` |
+| Moonrise, moon transit and moonset | CSV | `https://data.weather.gov.hk/weatherAPI/opendata/opendata.php?dataType=MRS&year={year}&rformat=csv` |
 | OCF nine-day station forecast | JSON in a file named `.xml` | `https://maps.weather.gov.hk/ocf/dat/{stationCode}.xml` |
 | Earth Weather model cycle | JSON | `https://maps.weather.gov.hk/wxviewer/data/current_{model}.json` |
 | Earth Weather model raster | Encoded PNG | `https://maps.weather.gov.hk/wxviewer/data/weather/{model}/{baseTime}/{filename}.png` |
@@ -1337,6 +1430,10 @@ Read-side implementation ownership is intentionally separate from ingestion:
 | `backend/app/weather_archive_reads.py` | Bounded timestamp-addressed archive routes |
 | `backend/app/weather_read_common.py` | Shared reader, cache, image and metadata helpers |
 | `backend/app/weather_read_models.py` | Typed public response contracts |
+| `backend/app/ingestion.py` | Shared fetch, validation handoff, hashing, latest/archive writes and storage error translation |
+| `backend/app/json_ingestion.py` | Pydantic JSON adapter for the shared ingestion core |
+| `backend/app/raw_ingestion.py` | CSV, KML and PNG adapter for the shared ingestion core |
+| `backend/app/rainfall_nowcast.py` | Gridded-nowcast validation, archive reduction and public grid parsing |
 | `backend/app/official_feeds.py` | Official HKO schemas, validation and dataset-specific upstream anomalies |
 | `backend/app/internal_feeds.py` | OCF, Earth Weather, radar and tropical-cyclone schemas and ingestion adapters |
 | `backend/app/storage.py` | Reproducible MongoDB archive indexes and expiry policy |
@@ -1348,25 +1445,27 @@ they are never Base64-encoded. Common document metadata includes, where
 applicable:
 
 ```text
-dataset, source_url, content_type, payload, fetched_at, source_updated_at,
-byte_size, content_hash, expires_at, archive_slot, observed_at, base_time,
-valid_at, lead_hours, archive_valid_times, model, bounds, raster_width,
-raster_height
+dataset, document_id, archive_policy, source_url, content_type, payload,
+fetched_at, source_updated_at, byte_size, content_hash, expires_at,
+archive_slot, observed_at, base_time, valid_at, lead_hours,
+archive_valid_times, model, bounds, raster_width, raster_height
 ```
 
 The `latest` collection maintains one replaceable document per public live
-product. The `archive` collection retains selected changed or interval-slotted
-records for three days. A TTL index removes expired records.
+product identity. The `archive` collection retains selected changed or
+interval-slotted records for three days. Every archive record carries its
+`document_id` and either the `content` or `slot` archive policy. A TTL index
+removes expired records.
 
 Archive indexes cover the public query patterns:
 
 | Index keys | Use |
 |---|---|
-| `dataset`, `content_hash` | Deduplicate content-addressed archive records |
-| `dataset`, `archive_slot` | Enforce one interval archive per dataset and slot |
-| `dataset`, `source_updated_at` | Station rainfall, OCF and nowcast issue-time ranges |
-| `dataset`, `observed_at` | Radar observation-time ranges and timestamp reads |
-| `dataset`, `model`, `valid_at` | Earth Weather model ranges and timestamp reads |
+| `dataset`, `document_id`, `content_hash` | Deduplicate records whose `archive_policy` is `content` |
+| `dataset`, `document_id`, `archive_slot` | Enforce one record per identity and slot when `archive_policy` is `slot` |
+| `dataset`, `document_id`, `source_updated_at` | Station rainfall, OCF and nowcast issue-time ranges |
+| `dataset`, `document_id`, `observed_at` | Radar observation-time ranges and timestamp reads |
+| `dataset`, `document_id`, `valid_at` | Earth Weather model ranges and timestamp reads |
 | `expires_at` | Three-day TTL expiry |
 
 Archive index requests accept at most a three-day range and 512 stored

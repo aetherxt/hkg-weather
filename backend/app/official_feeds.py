@@ -2,7 +2,7 @@ import csv
 import io
 import math
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -32,6 +32,7 @@ from .storage import ArchivePolicy
 ARCHIVE_RETENTION = timedelta(days=3)
 HONG_KONG = ZoneInfo("Asia/Hong_Kong")
 WEATHER_API = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
+OPEN_DATA_API = "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
 
 LOCAL_FORECAST_DATASET = "local_forecast"
 CURRENT_WEATHER_DATASET = "current_weather"
@@ -44,6 +45,9 @@ GRIDDED_RAINFALL_NOWCAST_DATASET = "gridded_rainfall_nowcast"
 REGIONAL_TEMPERATURE_DATASET = "regional_temperature"
 REGIONAL_WIND_DATASET = "regional_wind"
 SMART_LAMPPOST_DATASET = "smart_lamppost"
+SUNRISE_SUNSET_DATASET = "sunrise_sunset"
+MOONRISE_MOONSET_DATASET = "moonrise_moonset"
+ASTRONOMICAL_CSV_HEADER = ("YYYY-MM-DD", "RISE", "TRAN.", "SET")
 TEMPERATURE_CSV_HEADER = (
     "Date time",
     "Automatic Weather Station",
@@ -66,6 +70,13 @@ SMART_LAMPPOST_CONFIG_PATH = (
 
 def weather_api_url(data_type: str) -> str:
     return f"{WEATHER_API}?{urlencode({'dataType': data_type, 'lang': 'en'})}"
+
+
+def astronomical_api_url(data_type: str, year: int) -> str:
+    query = urlencode(
+        {"dataType": data_type, "year": year, "rformat": "csv"}
+    )
+    return f"{OPEN_DATA_API}?{query}"
 
 
 CURRENT_WEATHER_URL = weather_api_url("rhrread")
@@ -336,6 +347,103 @@ def validate_wind_csv(raw_payload: bytes) -> ValidatedPayload:
     )
 
 
+def _validate_astronomical_time(value: str, *, allow_missing: bool) -> None:
+    cleaned = value.strip()
+    if not cleaned:
+        if allow_missing:
+            return
+        raise ValueError("astronomical CSV has a missing time")
+    if len(cleaned) != 5 or cleaned[2] != ":":
+        raise ValueError("astronomical CSV has an invalid time")
+    try:
+        datetime.strptime(cleaned, "%H:%M")
+    except ValueError as error:
+        raise ValueError("astronomical CSV has an invalid time") from error
+
+
+def validate_astronomical_times_csv(
+    raw_payload: bytes,
+    *,
+    year: int,
+    allow_missing_times: bool,
+) -> ValidatedPayload:
+    reader = csv.reader(
+        io.StringIO(raw_payload.decode("utf-8-sig")),
+        strict=True,
+    )
+    expected_date = date(year, 1, 1)
+    end_date = date(year + 1, 1, 1)
+    row_count = 0
+
+    try:
+        header = next(reader, None)
+        if header is None or tuple(value.strip() for value in header) != (
+            ASTRONOMICAL_CSV_HEADER
+        ):
+            raise ValueError("astronomical CSV has an unexpected schema")
+
+        for row in reader:
+            if not row or all(not value.strip() for value in row):
+                continue
+            if len(row) != len(ASTRONOMICAL_CSV_HEADER):
+                raise ValueError("astronomical CSV row has an unexpected schema")
+            try:
+                row_date = date.fromisoformat(row[0].strip())
+            except ValueError as error:
+                raise ValueError("astronomical CSV has an invalid date") from error
+            if row_date != expected_date:
+                raise ValueError(
+                    "astronomical CSV dates are incomplete or out of order"
+                )
+            for value in row[1:]:
+                _validate_astronomical_time(
+                    value,
+                    allow_missing=allow_missing_times,
+                )
+            if allow_missing_times and not any(value.strip() for value in row[1:]):
+                raise ValueError("astronomical CSV row has no events")
+            expected_date += timedelta(days=1)
+            row_count += 1
+    except csv.Error as error:
+        raise ValueError("astronomical CSV is malformed") from error
+
+    if expected_date != end_date:
+        raise ValueError("astronomical CSV does not contain the complete year")
+    return ValidatedPayload(
+        source_updated_at=None,
+        metadata={"year": year, "row_count": row_count},
+    )
+
+
+def astronomical_times_specs(year: int) -> tuple[RawDatasetSpec, RawDatasetSpec]:
+    return (
+        RawDatasetSpec(
+            dataset=SUNRISE_SUNSET_DATASET,
+            document_id=SUNRISE_SUNSET_DATASET,
+            url=astronomical_api_url("SRS", year),
+            validate=lambda raw: validate_astronomical_times_csv(
+                raw,
+                year=year,
+                allow_missing_times=False,
+            ),
+            default_content_type="text/csv",
+            archive_retention=None,
+        ),
+        RawDatasetSpec(
+            dataset=MOONRISE_MOONSET_DATASET,
+            document_id=MOONRISE_MOONSET_DATASET,
+            url=astronomical_api_url("MRS", year),
+            validate=lambda raw: validate_astronomical_times_csv(
+                raw,
+                year=year,
+                allow_missing_times=True,
+            ),
+            default_content_type="text/csv",
+            archive_retention=None,
+        ),
+    )
+
+
 GRIDDED_RAINFALL_SPEC = RawDatasetSpec(
     dataset=GRIDDED_RAINFALL_NOWCAST_DATASET,
     document_id=GRIDDED_RAINFALL_NOWCAST_DATASET,
@@ -509,6 +617,20 @@ async def ingest_regional_weather(
 ) -> list[DatasetIngestionStatus]:
     results = []
     for spec in (REGIONAL_TEMPERATURE_SPEC, REGIONAL_WIND_SPEC):
+        result = await ingest_raw_dataset(database, client, spec)
+        results.append(ingestion_status(spec.dataset, result))
+    return results
+
+
+async def ingest_astronomical_times(
+    database: AsyncDatabase,
+    client: httpx.AsyncClient,
+    *,
+    year: int | None = None,
+) -> list[DatasetIngestionStatus]:
+    selected_year = year or datetime.now(HONG_KONG).year
+    results = []
+    for spec in astronomical_times_specs(selected_year):
         result = await ingest_raw_dataset(database, client, spec)
         results.append(ingestion_status(spec.dataset, result))
     return results
