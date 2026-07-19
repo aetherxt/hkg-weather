@@ -13,7 +13,7 @@ import {
   type TemperatureSensorItem,
 } from "@/lib/weather/temperature-regions";
 import type { WeatherSectionState } from "@/lib/weather/state";
-import type { LamppostReading, TemperatureReading } from "@/lib/weather/types";
+import type { LamppostReading, TemperatureReading, WindReading } from "@/lib/weather/types";
 
 const ACTIVE_SENSORS_COOKIE_NAME = "hkw-active-stations";
 const HIDDEN_SENSORS_COOKIE_NAME = "hkw-hidden-temperature-sensors";
@@ -117,23 +117,70 @@ function firstLamppostLocation(label: string) {
   return label.split("/")[0]?.trim() ?? label;
 }
 
-function TemperatureSensorCard({ item }: { item: TemperatureSensorItem }) {
+function WindArrow({ direction }: { direction: string | null }) {
+  const degMap: Record<string, number> = {
+    North: 0,
+    "North Northeast": 22.5,
+    Northeast: 45,
+    "East Northeast": 67.5,
+    East: 90,
+    "East Southeast": 112.5,
+    Southeast: 135,
+    "South Southeast": 157.5,
+    South: 180,
+    "South Southwest": 202.5,
+    Southwest: 225,
+    "West Southwest": 247.5,
+    West: 270,
+    "West Northwest": 292.5,
+    Northwest: 315,
+    "North Northwest": 337.5,
+  };
+  const deg = direction ? degMap[direction] ?? 0 : 0;
+
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      className="temperature-wind-arrow"
+      aria-label={`Wind direction ${direction ?? "unknown"}`}
+      style={{ transform: `rotate(${deg}deg)` }}
+    >
+      <path d="M6 1.5L10.5 10.5L6 8.5L1.5 10.5L6 1.5Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function TemperatureSensorCard({ item, windDirection, windSpeedKmh }: { item: TemperatureSensorItem; windDirection: string | null; windSpeedKmh: number | null }) {
   const sensorLabel = item.kind === "lamppost" ? firstLamppostLocation(item.label) : item.label;
+  const hasWind = windDirection || (windSpeedKmh !== null);
 
   return (
     <div className="temperature-station-row" data-kind={item.kind}>
       <span className="temperature-sensor-kind">{item.kind === "station" ? "Station" : "Lamppost"}</span>
       <span className="temperature-station-name">{sensorLabel}</span>
-      <span className="temperature-station-value">
-        {item.temperature !== null ? (
-          <>
-            {item.temperature}
-            <span aria-hidden="true">°</span>
-            <span className="sr-only"> degrees Celsius</span>
-          </>
-        ) : (
-          <span className="weather-value-unavailable" aria-label="Unavailable">
-            --
+      <span className="temperature-station-value-row">
+        <span className="temperature-station-value">
+          {item.temperature !== null ? (
+            <>
+              {item.temperature}
+              <span aria-hidden="true">°</span>
+              <span className="sr-only"> degrees Celsius</span>
+            </>
+          ) : (
+            <span className="weather-value-unavailable" aria-label="Unavailable">
+              --
+            </span>
+          )}
+        </span>
+        {hasWind && (
+          <span className="temperature-station-wind">
+            <WindArrow direction={windDirection} />
+            <span className="temperature-wind-speed">
+              {windSpeedKmh !== null ? windSpeedKmh : "--"}
+            </span>
           </span>
         )}
       </span>
@@ -144,9 +191,11 @@ function TemperatureSensorCard({ item }: { item: TemperatureSensorItem }) {
 function TemperatureRegionGrid({
   items,
   regionOrder,
+  windByStation,
 }: {
   items: TemperatureSensorItem[];
   regionOrder: readonly TemperatureRegionId[];
+  windByStation: Map<string, WindReading>;
 }) {
   const groups = groupTemperatureSensors(items, regionOrder);
 
@@ -159,9 +208,14 @@ function TemperatureRegionGrid({
             <span className="temperature-region-count">{group.items.length}</span>
           </div>
           <div className="temperature-station-list">
-            {group.items.map((item) => (
-              <TemperatureSensorCard key={item.id} item={item} />
-            ))}
+            {group.items.map((item) => {
+              const stationWind = windByStation.get(item.label) ?? null;
+              const windDir = item.kind === "lamppost" ? item.windDirection : stationWind?.meanWindDirection ?? null;
+              const windSpeed = item.kind === "lamppost" ? item.windSpeedKmh : stationWind?.meanWindSpeedKmh ?? null;
+              return (
+                <TemperatureSensorCard key={item.id} item={item} windDirection={windDir} windSpeedKmh={windSpeed} />
+              );
+            })}
           </div>
         </section>
       ))}
@@ -172,19 +226,32 @@ function TemperatureRegionGrid({
 export function TemperatureDetailPanel({
   regionalTemperature,
   lampposts,
+  regionalWind,
 }: {
   regionalTemperature: WeatherSectionState<TemperatureReading[]>;
   lampposts: WeatherSectionState<LamppostReading[]>;
+  regionalWind: WeatherSectionState<WindReading[]>;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
 
   const regionalReadings = loadedData(regionalTemperature);
   const lamppostReadings = loadedData(lampposts);
+  const windReadings = loadedData(regionalWind);
   const isLoading =
     regionalTemperature.status === "loading" ||
     regionalTemperature.status === "retrying" ||
     lampposts.status === "loading" ||
     lampposts.status === "retrying";
+
+  const windByStation = useMemo(() => {
+    const map = new Map<string, WindReading>();
+    if (windReadings) {
+      for (const reading of windReadings) {
+        map.set(reading.station, reading);
+      }
+    }
+    return map;
+  }, [windReadings]);
 
   const allItems = useMemo(
     () => buildTemperatureSensorItems({
@@ -261,7 +328,7 @@ export function TemperatureDetailPanel({
         </div>
       </div>
 
-      <TemperatureRegionGrid items={activeItems} regionOrder={regionOrder} />
+      <TemperatureRegionGrid items={activeItems} regionOrder={regionOrder} windByStation={windByStation} />
 
       {editorOpen && typeof document !== "undefined" && createPortal(
         <StationEditor

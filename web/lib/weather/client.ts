@@ -7,6 +7,7 @@ import type {
   LocalForecast,
   NineDayForecast,
   ResponseMetadata,
+  StationRainfallResponse,
   TemperatureReading,
   Warnings,
   WeatherErrorDetail,
@@ -260,6 +261,8 @@ export function createWeatherClient(options: WeatherClientOptions = {}) {
       list<LamppostReading>("/lampposts", init),
     getAstronomicalTimes: (init?: RequestInit) =>
       data<AstronomicalTimes>("/sun", init),
+    getStationRainfall: (init?: RequestInit) =>
+      data<StationRainfallResponse>("/rainfall/stations", init),
   };
 }
 

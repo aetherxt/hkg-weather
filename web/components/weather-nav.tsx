@@ -28,7 +28,6 @@ export function WeatherNav() {
       setIsVisible(false);
     };
 
-    setIsVisible(false);
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerleave", handlePointerLeave);
 

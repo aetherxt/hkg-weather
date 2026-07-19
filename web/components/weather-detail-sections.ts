@@ -1,6 +1,6 @@
 export const weatherDetailSections = [
   "temperature",
-  "precipitation",
+  "rainfall-wind",
   "warnings",
   "uv",
 ] as const;

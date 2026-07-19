@@ -158,14 +158,14 @@ export function CurrentWeatherReport({
 
       <div
         className="current-weather-condition-row weather-data-trigger"
-        data-weather-trigger="precipitation"
-        data-active={activeSection === "precipitation" ? "true" : undefined}
-        aria-controls="weather-detail-precipitation-content"
-        aria-expanded={activeSection === "precipitation"}
-        aria-label="Open precipitation details"
-        onClick={() => onSelectSection("precipitation")}
+        data-weather-trigger="rainfall-wind"
+        data-active={activeSection === "rainfall-wind" ? "true" : undefined}
+        aria-controls="weather-detail-rainfall-wind-content"
+        aria-expanded={activeSection === "rainfall-wind"}
+        aria-label="Open rainfall and wind details"
+        onClick={() => onSelectSection("rainfall-wind")}
         onKeyDown={(event) =>
-          selectSectionWithKeyboard(event, "precipitation", onSelectSection)
+          selectSectionWithKeyboard(event, "rainfall-wind", onSelectSection)
         }
         role="button"
         tabIndex={0}

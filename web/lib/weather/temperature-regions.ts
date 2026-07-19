@@ -1,6 +1,17 @@
 import { regionalStationLocations } from "@/lib/weather/station-locations";
 import type { LamppostReading, TemperatureReading } from "@/lib/weather/types";
 
+function degreesToCompass(degrees: number): string {
+  const compassPoints = [
+    "North", "North Northeast", "Northeast", "East Northeast",
+    "East", "East Southeast", "Southeast", "South Southeast",
+    "South", "South Southwest", "Southwest", "West Southwest",
+    "West", "West Northwest", "Northwest", "North Northwest",
+  ];
+  const index = Math.round(degrees / 22.5) % 16;
+  return compassPoints[index];
+}
+
 export type TemperatureRegionId =
   | "hong-kong-island"
   | "kowloon"
@@ -20,6 +31,8 @@ export interface TemperatureSensorItem {
   regionId: TemperatureRegionId;
   temperature: string | null;
   humidity: string | null;
+  windDirection: string | null;
+  windSpeedKmh: number | null;
 }
 
 export const temperatureRegions: readonly TemperatureRegion[] = [
@@ -97,24 +110,45 @@ const lamppostRegionLookup: Record<string, TemperatureRegionId> = {
   "Kowloon Bay / Choi Hung": "kowloon",
 };
 
-function readingTemperature(reading: Record<string, unknown>) {
+function hkoBody(reading: Record<string, unknown>) {
   const body = reading.body;
   const hko = body && typeof body === "object" && "hko" in body
     ? (body as Record<string, unknown>).hko
     : null;
-  if (!hko || typeof hko !== "object") return null;
-  const temperature = (hko as Record<string, unknown>).t0;
+  return hko && typeof hko === "object" ? (hko as Record<string, unknown>) : null;
+}
+
+function readingTemperature(reading: Record<string, unknown>) {
+  const hko = hkoBody(reading);
+  if (!hko) return null;
+  const temperature = hko.t0;
   return temperature == null ? null : String(temperature);
 }
 
 function readingHumidity(reading: Record<string, unknown>) {
-  const body = reading.body;
-  const hko = body && typeof body === "object" && "hko" in body
-    ? (body as Record<string, unknown>).hko
-    : null;
-  if (!hko || typeof hko !== "object") return null;
-  const humidity = (hko as Record<string, unknown>).rh;
+  const hko = hkoBody(reading);
+  if (!hko) return null;
+  const humidity = hko.rh;
   return humidity == null ? null : String(humidity);
+}
+
+function readingWindDirection(reading: Record<string, unknown>): string | null {
+  const hko = hkoBody(reading);
+  if (!hko) return null;
+  const wd = hko.wd;
+  if (wd == null) return null;
+  const degrees = typeof wd === "string" ? parseFloat(wd) : Number(wd);
+  if (isNaN(degrees)) return null;
+  return degreesToCompass(degrees);
+}
+
+function readingWindSpeed(reading: Record<string, unknown>): number | null {
+  const hko = hkoBody(reading);
+  if (!hko) return null;
+  const ws = hko.ws;
+  if (ws == null) return null;
+  const speed = typeof ws === "string" ? parseFloat(ws) : Number(ws);
+  return isNaN(speed) ? null : speed;
 }
 
 function fallbackRegion(longitude: number, latitude: number): TemperatureRegionId {
@@ -179,6 +213,8 @@ export function buildTemperatureSensorItems({
         regionId: stationRegionLookup[station] ?? "new-territories-west",
         temperature: reading?.temperatureC == null ? null : String(reading.temperatureC),
         humidity: null,
+        windDirection: null,
+        windSpeedKmh: null,
       };
     });
 
@@ -191,6 +227,8 @@ export function buildTemperatureSensorItems({
       fallbackRegion(lamppost.longitude, lamppost.latitude),
     temperature: readingTemperature(lamppost.reading),
     humidity: readingHumidity(lamppost.reading),
+    windDirection: readingWindDirection(lamppost.reading),
+    windSpeedKmh: readingWindSpeed(lamppost.reading),
   }));
 
   return [...stations, ...lampposts].sort((left, right) => {

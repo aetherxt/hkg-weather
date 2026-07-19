@@ -17,6 +17,8 @@ const successRoutes = {
   "/api/weather/regional/temperature": "regional-temperature",
   "/api/weather/regional/wind": "regional-wind",
   "/api/weather/lampposts": "lampposts",
+  "/api/weather/sun": "astronomical",
+  "/api/weather/rainfall/stations": "station-rainfall",
 } as const;
 
 test("initial page data loads every non-map section from fixtures", async () => {
@@ -34,6 +36,8 @@ test("initial page data loads every non-map section from fixtures", async () => 
   assert.equal(state.regionalTemperature.status, "ready");
   assert.equal(state.regionalWind.status, "ready");
   assert.equal(state.lampposts.status, "ready");
+  assert.equal(state.astronomical.status, "ready");
+  assert.equal(state.stationRainfall.status, "ready");
 
   if (state.warnings.status === "stale") {
     assert.equal(state.warnings.sourceUpdatedAt, "2026-07-18T09:10:00Z");

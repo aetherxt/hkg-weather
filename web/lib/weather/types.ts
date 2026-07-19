@@ -69,6 +69,18 @@ export interface DistrictRainfallObservations {
   endTime: IsoDateTime;
 }
 
+export interface StationRainfallReading {
+  automaticWeatherStation: string;
+  automaticWeatherStationID: string;
+  value: string;
+  unit: "mm";
+}
+
+export interface StationRainfallResponse {
+  observationTime: IsoDateTime;
+  hourlyRainfall: StationRainfallReading[];
+}
+
 export interface UvIndexReading {
   place: string;
   value: number;

@@ -6,6 +6,7 @@ import type {
   LamppostReading,
   LocalForecast,
   NineDayForecast,
+  StationRainfallResponse,
   TemperatureReading,
   Warnings,
   WindReading,
@@ -23,6 +24,7 @@ export const INITIAL_WEATHER_STALE_AFTER = {
   regionalWind: 30 * MINUTE,
   lampposts: 30 * MINUTE,
   astronomical: 24 * HOUR,
+  stationRainfall: 30 * MINUTE,
 } as const;
 
 export interface InitialWeatherState {
@@ -34,6 +36,7 @@ export interface InitialWeatherState {
   regionalWind: WeatherSectionState<WindReading[]>;
   lampposts: WeatherSectionState<LamppostReading[]>;
   astronomical: WeatherSectionState<AstronomicalTimes>;
+  stationRainfall: WeatherSectionState<StationRainfallResponse>;
 }
 
 export async function loadInitialWeather(
@@ -49,6 +52,7 @@ export async function loadInitialWeather(
     regionalWind,
     lampposts,
     astronomical,
+    stationRainfall,
   ] = await Promise.all([
     loadWeatherSection(
       client.getWarnings,
@@ -90,6 +94,11 @@ export async function loadInitialWeather(
       INITIAL_WEATHER_STALE_AFTER.astronomical,
       now,
     ),
+    loadWeatherSection(
+      client.getStationRainfall,
+      INITIAL_WEATHER_STALE_AFTER.stationRainfall,
+      now,
+    ),
   ]);
 
   return {
@@ -101,5 +110,6 @@ export async function loadInitialWeather(
     regionalWind,
     lampposts,
     astronomical,
+    stationRainfall,
   };
 }
