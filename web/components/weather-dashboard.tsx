@@ -13,6 +13,7 @@ import type { WeatherDetailSection } from "@/components/weather-detail-sections"
 import { WeatherWarnings } from "@/components/weather-warnings";
 import type { InitialWeatherState } from "@/lib/weather/initial";
 import { currentWeatherViewModel } from "@/lib/weather/view-models";
+import { useSettings } from "@/lib/weather/settings";
 import { weatherClient } from "@/lib/weather/client";
 import type {
   ReadyWeatherSection,
@@ -111,6 +112,24 @@ export function WeatherDashboard({
     liveSection(initialWeather.warnings),
   );
 
+  const { settings, setAvailableStations, setAvailableDistricts } = useSettings();
+
+  const tempDist = settings.temperatureDistrict === "__default__"
+    ? undefined
+    : settings.temperatureDistrict;
+  const rainDist = settings.rainfallDistrict === "__default__"
+    ? undefined
+    : settings.rainfallDistrict;
+
+  useEffect(() => {
+    if (currentSection) {
+      const stations = currentSection.data.temperature?.data.map((t) => t.place) ?? [];
+      setAvailableStations(stations);
+      const districts = currentSection.data.rainfall?.data.map((r) => r.place) ?? [];
+      setAvailableDistricts(districts);
+    }
+  }, [currentSection, setAvailableStations, setAvailableDistricts]);
+
   const warnings = warningsSection?.data.summary ?? null;
   const warningsData = warningsSection?.data ?? null;
   const hasWarnings = warnings
@@ -206,10 +225,10 @@ export function WeatherDashboard({
   }, []);
 
   const vm = currentSection
-    ? currentWeatherViewModel(currentSection.data)
+    ? currentWeatherViewModel(currentSection.data, tempDist, rainDist)
     : null;
   const currentUpdatedAt = currentSection
-    ? (currentSection.sourceUpdatedAt ?? currentSection.fetchedAt)
+    ? currentSection.fetchedAt
     : null;
 
   const warningsUpdatedAt = warningsSection
@@ -220,9 +239,6 @@ export function WeatherDashboard({
     ? initialWeather.astronomical
     : null;
   const astronomical = astronomicalSection?.data ?? null;
-
-  const rainfallReadings =
-    currentSection?.data.rainfall?.data ?? [];
 
   return (
     <main
@@ -302,7 +318,6 @@ export function WeatherDashboard({
                 />
               ) : activeDetail.id === "rainfall-wind" ? (
                 <RainfallDetailPanel
-                  rainfallReadings={rainfallReadings}
                   stationRainfall={stationRainfall ?? initialWeather.stationRainfall}
                   localForecast={localForecast ?? initialWeather.localForecast}
                 />

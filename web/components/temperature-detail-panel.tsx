@@ -192,15 +192,46 @@ function TemperatureRegionGrid({
   items,
   regionOrder,
   windByStation,
+  heading,
+  stationCount,
+  stationUpdateTime,
+  lamppostCount,
+  lamppostUpdateTime,
+  onEdit,
 }: {
   items: TemperatureSensorItem[];
   regionOrder: readonly TemperatureRegionId[];
   windByStation: Map<string, WindReading>;
+  heading?: React.ReactNode;
+  stationCount: number;
+  stationUpdateTime: string | null;
+  lamppostCount: number;
+  lamppostUpdateTime: string | null;
+  onEdit: () => void;
 }) {
   const groups = groupTemperatureSensors(items, regionOrder);
 
   return (
     <div className="temperature-region-list">
+      {heading}
+      <div className="temperature-map-heading">
+        <div>
+          <p className="temperature-subsection-meta">
+            <i className="temperature-map-legend-station" />
+            <span>{stationCount} stations</span>
+            <span>Last Updated: {stationUpdateTime ? formatTime(stationUpdateTime) : "--:--"}</span>
+            <span className="temperature-subsection-meta-dot">·</span>
+            <i className="temperature-map-legend-lamppost" />
+            <span>{lamppostCount} lampposts</span>
+            <span>Last Updated: {lamppostUpdateTime ? formatTime(lamppostUpdateTime) : "--:--"}</span>
+          </p>
+        </div>
+        <div className="temperature-map-heading-row">
+          <button className="station-editor-trigger" onClick={onEdit}>
+            Edit
+          </button>
+        </div>
+      </div>
       {groups.map((group) => (
         <section key={group.id} className="temperature-region-group">
           <div className="temperature-region-header">
@@ -219,6 +250,9 @@ function TemperatureRegionGrid({
           </div>
         </section>
       ))}
+      <p className="temperature-info">
+        Station temperature is measured by electronic thermometers at automatic weather stations and smart lampposts across Hong Kong.
+      </p>
     </div>
   );
 }
@@ -309,26 +343,21 @@ export function TemperatureDetailPanel({
 
   return (
     <div className="temperature-detail-panel">
-      <div className="temperature-map-heading">
-        <div>
-          <p className="temperature-subsection-meta">
-            <i className="temperature-map-legend-station" />
-            <span>{countItems(activeItems, "station")} stations</span>
-            <span>Last Updated: {stationUpdateTime ? formatTime(stationUpdateTime) : "--:--"}</span>
-            <span className="temperature-subsection-meta-dot">·</span>
-            <i className="temperature-map-legend-lamppost" />
-            <span>{countItems(activeItems, "lamppost")} lampposts</span>
-            <span>Last Updated: {lamppostUpdateTime ? formatTime(lamppostUpdateTime) : "--:--"}</span>
-          </p>
-        </div>
-        <div className="temperature-map-heading-row">
-          <button className="station-editor-trigger" onClick={() => setEditorOpen(true)}>
-            Edit
-          </button>
-        </div>
-      </div>
-
-      <TemperatureRegionGrid items={activeItems} regionOrder={regionOrder} windByStation={windByStation} />
+      <TemperatureRegionGrid
+        items={activeItems}
+        regionOrder={regionOrder}
+        windByStation={windByStation}
+        heading={
+          <div className="rw-section-header">
+            <h3 className="rw-section-heading">Station &amp; Lamppost Temperature (past hour)</h3>
+          </div>
+        }
+        stationCount={countItems(activeItems, "station")}
+        stationUpdateTime={stationUpdateTime}
+        lamppostCount={countItems(activeItems, "lamppost")}
+        lamppostUpdateTime={lamppostUpdateTime}
+        onEdit={() => setEditorOpen(true)}
+      />
 
       {editorOpen && typeof document !== "undefined" && createPortal(
         <StationEditor
@@ -436,7 +465,7 @@ function StationEditor({
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
                           <span className="station-editor-item-kind">{item.kind}</span>
-                          <span className="station-editor-name">{item.label}</span>
+                          <span className="station-editor-name">{firstLamppostLocation(item.label)}</span>
                           <button
                             className="station-editor-remove"
                             onClick={() => onHide(item.id)}
@@ -468,7 +497,7 @@ function StationEditor({
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
                           <span className="station-editor-item-kind">{item.kind}</span>
-                          <span className="station-editor-name">{item.label}</span>
+                          <span className="station-editor-name">{firstLamppostLocation(item.label)}</span>
                           <button
                             className="station-editor-add"
                             onClick={() => onShow(item.id)}

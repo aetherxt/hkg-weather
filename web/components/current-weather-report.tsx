@@ -139,7 +139,7 @@ export function CurrentWeatherReport({
             role="button"
             tabIndex={0}
           >
-            <p className="current-weather-temperature" style={temperature !== null && temperature.toFixed(0).endsWith('7') ? { letterSpacing: '0em' } : undefined}>
+            <p className="current-weather-temperature" suppressHydrationWarning style={temperature !== null && temperature.toFixed(0).endsWith('7') ? { letterSpacing: '0em' } : undefined}>
               {temperature !== null ? (
                 <>
                   {temperature.toFixed(0)}
