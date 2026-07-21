@@ -201,7 +201,7 @@ export function WeatherDashboard({
         const { data, meta } = forecast.value;
         setLocalForecast({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
       }
-    }, 60_000);
+    }, 120_000);
     return () => clearInterval(interval);
   }, []);
 

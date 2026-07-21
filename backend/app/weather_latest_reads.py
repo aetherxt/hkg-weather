@@ -179,7 +179,7 @@ async def get_current_weather(
         CURRENT_WEATHER_DATASET,
         validate=CurrentWeatherPayload.model_validate,
     )
-    set_latest_cache(response, current=True)
+    set_latest_cache(response)
     return DataResponse(
         data=payload,
         meta=response_meta(CURRENT_WEATHER_DATASET, stored),
