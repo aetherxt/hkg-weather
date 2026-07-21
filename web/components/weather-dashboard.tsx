@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   CurrentWeatherReport,
@@ -8,13 +8,38 @@ import {
 } from "@/components/current-weather-report";
 import { RainfallDetailPanel } from "@/components/rainfall-detail-panel";
 import { TemperatureDetailPanel } from "@/components/temperature-detail-panel";
+import { WarningsDetailPanel } from "@/components/warnings-detail-panel";
 import type { WeatherDetailSection } from "@/components/weather-detail-sections";
 import { WeatherWarnings } from "@/components/weather-warnings";
 import type { InitialWeatherState } from "@/lib/weather/initial";
 import { currentWeatherViewModel } from "@/lib/weather/view-models";
-import type { WarningSummary } from "@/lib/weather/types";
+import { weatherClient } from "@/lib/weather/client";
+import type {
+  ReadyWeatherSection,
+  WeatherSectionState,
+} from "@/lib/weather/state";
+import {
+  activeWarnings,
+  warningDisplayName,
+  warningSummaryHeadline,
+} from "@/lib/weather";
+import type {
+  CurrentWeather,
+  LamppostReading,
+  LocalForecast,
+  StationRainfallResponse,
+  TemperatureReading,
+  Warnings,
+  WindReading,
+} from "@/lib/weather/types";
 
-const detailSections: Array<{
+function warningsDetailBody(warnings: Warnings): string {
+  return activeWarnings(warnings.summary)
+    .map((w) => warningDisplayName(w))
+    .join(", ");
+}
+
+const staticDetailSections: Array<{
   id: WeatherDetailSection;
   label: string;
   headline: string;
@@ -33,27 +58,12 @@ const detailSections: Array<{
     body: "",
   },
   {
-    id: "warnings",
-    label: "Warnings",
-    headline: "2 warnings in force",
-    body: "A Red Rainstorm Warning and the Strong Monsoon Signal are currently active.",
-  },
-  {
     id: "uv",
     label: "Sun",
     headline: "Sunrise & Sunset",
     body: "Today's sunrise and sunset times.",
   },
 ];
-
-function warningsSummary(
-  section: InitialWeatherState["warnings"],
-): WarningSummary | null {
-  if (section.status === "ready" || section.status === "stale") {
-    return section.data.summary;
-  }
-  return null;
-}
 
 export function WeatherDashboard({
   initialWeather,
@@ -66,19 +76,72 @@ export function WeatherDashboard({
   const miniNavRef = useRef<HTMLElement>(null);
 
   const selectSection = useCallback((section: WeatherDetailSection) => {
-    setActiveSection(section);
-    setAnimationIteration((iteration) => iteration + 1);
+    setActiveSection((prev) => {
+      if (prev === section) return prev;
+      setAnimationIteration((iteration) => iteration + 1);
+      return section;
+    });
   }, []);
+
+  function liveSection<Data>(section: WeatherSectionState<Data>) {
+    return section.status === "ready" || section.status === "stale"
+      ? section
+      : null;
+  }
+
+  const [currentSection, setCurrentSection] = useState(() =>
+    liveSection(initialWeather.current),
+  );
+  const [regionalTemperature, setRegionalTemperature] = useState(() =>
+    liveSection(initialWeather.regionalTemperature),
+  );
+  const [regionalWind, setRegionalWind] = useState(() =>
+    liveSection(initialWeather.regionalWind),
+  );
+  const [lampposts, setLampposts] = useState(() =>
+    liveSection(initialWeather.lampposts),
+  );
+  const [stationRainfall, setStationRainfall] = useState(() =>
+    liveSection(initialWeather.stationRainfall),
+  );
+  const [localForecast, setLocalForecast] = useState(() =>
+    liveSection(initialWeather.localForecast),
+  );
+  const [warningsSection, setWarningsSection] = useState(() =>
+    liveSection(initialWeather.warnings),
+  );
+
+  const warnings = warningsSection?.data.summary ?? null;
+  const warningsData = warningsSection?.data ?? null;
+  const hasWarnings = warnings
+    ? Object.values(warnings).some((w) => w.actionCode !== "CANCEL")
+    : false;
+  const warningsDetailSection = hasWarnings && warningsData
+    ? [{
+        id: "warnings" as const,
+        label: "Warnings",
+        headline: warningSummaryHeadline(warningsData.summary),
+        body: warningsDetailBody(warningsData),
+      }]
+    : [];
+  const availableDetailSections = [
+    ...staticDetailSections.slice(0, 2),
+    ...warningsDetailSection,
+    ...staticDetailSections.slice(2),
+  ];
+  const activeDetail = availableDetailSections.find(
+    (detail) => detail.id === activeSection,
+  );
 
   useLayoutEffect(() => {
     const nav = miniNavRef.current;
-    if (!nav || !activeSection) {
+    if (!nav || !activeDetail) {
       nav?.style.removeProperty("--active-opacity");
       return;
     }
 
     const activeButton = nav.querySelector<HTMLElement>(
-      `[data-weather-detail="${activeSection}"]`,
+      `[data-weather-detail="${activeDetail.id}"]`,
     );
     if (!activeButton) {
       nav.style.removeProperty("--active-opacity");
@@ -88,22 +151,67 @@ export function WeatherDashboard({
     nav.style.setProperty("--active-left", `${activeButton.offsetLeft}px`);
     nav.style.setProperty("--active-width", `${activeButton.offsetWidth}px`);
     nav.style.setProperty("--active-opacity", "1");
-  }, [activeSection]);
+  }, [activeDetail]);
 
-  const currentSection = initialWeather.current.status === "ready" ||
-    initialWeather.current.status === "stale"
-    ? initialWeather.current
+  useEffect(() => {
+    if (!activeDetail && activeSection) {
+      setActiveSection(null);
+    }
+  }, [activeDetail, activeSection]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const results = await Promise.allSettled([
+        weatherClient.getCurrentWeather(),
+        weatherClient.getWarnings(),
+        weatherClient.getRegionalTemperature(),
+        weatherClient.getRegionalWind(),
+        weatherClient.getLampposts(),
+        weatherClient.getStationRainfall(),
+        weatherClient.getLocalForecast(),
+      ]);
+
+      const [current, warnings, temp, wind, lamp, station, forecast] = results;
+
+      if (current.status === "fulfilled") {
+        const { data, meta } = current.value;
+        setCurrentSection({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (warnings.status === "fulfilled") {
+        const { data, meta } = warnings.value;
+        setWarningsSection({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (temp.status === "fulfilled") {
+        const { data, meta } = temp.value;
+        setRegionalTemperature({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (wind.status === "fulfilled") {
+        const { data, meta } = wind.value;
+        setRegionalWind({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (lamp.status === "fulfilled") {
+        const { data, meta } = lamp.value;
+        setLampposts({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (station.status === "fulfilled") {
+        const { data, meta } = station.value;
+        setStationRainfall({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+      if (forecast.status === "fulfilled") {
+        const { data, meta } = forecast.value;
+        setLocalForecast({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const vm = currentSection
+    ? currentWeatherViewModel(currentSection.data)
     : null;
-  const vm = currentSection ? currentWeatherViewModel(currentSection.data) : null;
   const currentUpdatedAt = currentSection
     ? (currentSection.sourceUpdatedAt ?? currentSection.fetchedAt)
     : null;
 
-  const warningsSection = initialWeather.warnings.status === "ready" ||
-    initialWeather.warnings.status === "stale"
-    ? initialWeather.warnings
-    : null;
-  const warnings = warningsSummary(initialWeather.warnings);
   const warningsUpdatedAt = warningsSection
     ? (warningsSection.sourceUpdatedAt ?? warningsSection.fetchedAt)
     : null;
@@ -115,17 +223,6 @@ export function WeatherDashboard({
 
   const rainfallReadings =
     currentSection?.data.rainfall?.data ?? [];
-
-  const hasWarnings = warnings
-    ? Object.values(warnings).some((w) => w.actionCode !== "CANCEL")
-    : false;
-  const availableDetailSections = hasWarnings
-    ? detailSections
-    : detailSections.filter((detail) => detail.id !== "warnings");
-
-  const activeDetail = availableDetailSections.find(
-    (detail) => detail.id === activeSection,
-  );
 
   return (
     <main
@@ -199,15 +296,18 @@ export function WeatherDashboard({
             >
               {activeDetail.id === "temperature" ? (
                 <TemperatureDetailPanel
-                  regionalTemperature={initialWeather.regionalTemperature}
-                  lampposts={initialWeather.lampposts}
-                  regionalWind={initialWeather.regionalWind}
+                  regionalTemperature={regionalTemperature ?? initialWeather.regionalTemperature}
+                  lampposts={lampposts ?? initialWeather.lampposts}
+                  regionalWind={regionalWind ?? initialWeather.regionalWind}
                 />
               ) : activeDetail.id === "rainfall-wind" ? (
                 <RainfallDetailPanel
                   rainfallReadings={rainfallReadings}
-                  stationRainfall={initialWeather.stationRainfall}
+                  stationRainfall={stationRainfall ?? initialWeather.stationRainfall}
+                  localForecast={localForecast ?? initialWeather.localForecast}
                 />
+              ) : activeDetail.id === "warnings" && warningsData ? (
+                <WarningsDetailPanel warnings={warningsData} />
               ) : (
                 <>
                   <p className="weather-mini-panel-kicker">

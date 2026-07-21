@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-UPSTREAM_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
+UPSTREAM_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 async def get_http_client() -> AsyncIterator[httpx.AsyncClient]:

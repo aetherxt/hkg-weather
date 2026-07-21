@@ -2,6 +2,15 @@
 More detailed weather site for Hong Kong, based on HKO data
 https://hkgweather.vercel.app/
 
+## Ethos
+The current weather condition by the HKO's website and APIs are ineffective for anything further than extremely general planning. The temperature provided is the one recorded by the Hong Kong Observatory, the rainfall value is based off an unknown chosen station marked by the HKO, as examples. 
+
+Provided forecasts are often inaccurate, and any real data or imagery requires navigating through a cluttered and confusing UI to access. 
+
+Typhoons are also a common occurrence in Hong Kong summers, but no forecast about the typhoon path can be accessed without opening a little-known subsite. 
+
+The webpage and app are also an eyesore. 
+
 ## Local development
 
 Vercel Services runs the Next.js frontend and FastAPI backend together on one
@@ -82,56 +91,6 @@ with shorter three-day forecasts remain excluded. The OCF ingestion route
 fetches at most four stations concurrently. OCF and Earth Weather are internal
 website feeds rather than versioned public APIs, so their cron routes validate
 every response before replacing stored data.
-
-## Current-weather ingestion
-
-`POST /api/cron/current-weather` authenticates with
-`Authorization: Bearer <CRON_SECRET>`, fetches the HKO current-weather report,
-and writes the raw response to MongoDB. It refreshes the `latest` document on
-every successful call and idempotently retains changed content in `archive`
-for three days.
-
-To test it locally without placing the secret in shell history, start FastAPI
-in one terminal:
-
-```bash
-cd backend
-source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-```
-
-Then call it from another terminal while the VPN is disabled:
-
-```bash
-read -rsp "Cron secret: " CRON_SECRET
-curl --fail-with-body --request POST \
-  --header "Authorization: Bearer ${CRON_SECRET}" \
-  http://127.0.0.1:8000/api/cron/current-weather
-unset CRON_SECRET
-```
-
-Read the stored report through the public, read-only endpoint:
-
-```bash
-curl --fail-with-body http://127.0.0.1:8000/api/weather/current
-```
-
-The response contains the decoded original HKO payload and storage metadata:
-
-```json
-{
-  "data": {},
-  "meta": {
-    "dataset": "current_weather",
-    "sourceUpdatedAt": "2026-07-17T09:02:00Z",
-    "fetchedAt": "2026-07-17T09:19:00Z"
-  }
-}
-```
-
-Successful responses are cached by Vercel for five minutes with background
-revalidation. Browsers revalidate their own copies, and error responses are
-never cached.
 
 ## Public weather read routes
 

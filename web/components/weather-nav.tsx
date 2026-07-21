@@ -17,7 +17,7 @@ export function WeatherNav() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const revealZoneHeight = 200;
+    const revealZoneHeight = 130;
 
     const handlePointerMove = (event: PointerEvent) => {
       const revealThreshold = window.innerHeight - revealZoneHeight;

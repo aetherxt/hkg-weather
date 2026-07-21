@@ -64,6 +64,12 @@ function selectSectionWithKeyboard(
   }
 }
 
+function blueColor(value: number | null, max: number = 100): string | undefined {
+  if (value === null || value <= 0) return undefined;
+  const intensity = Math.min(value / max, 1);
+  return `rgba(8, 62, 110, ${(0.08 + intensity * 0.74).toFixed(2)})`;
+}
+
 function getConditionTone(condition: string) {
   const normalizedCondition = condition.toLowerCase();
 
@@ -133,10 +139,10 @@ export function CurrentWeatherReport({
             role="button"
             tabIndex={0}
           >
-            <p className="current-weather-temperature">
+            <p className="current-weather-temperature" style={temperature !== null && temperature.toFixed(0).endsWith('7') ? { letterSpacing: '0em' } : undefined}>
               {temperature !== null ? (
                 <>
-                  {temperature}
+                  {temperature.toFixed(0)}
                   <span aria-hidden="true">°</span>
                   <span className="sr-only"> degrees Celsius</span>
                 </>
@@ -170,28 +176,45 @@ export function CurrentWeatherReport({
         role="button"
         tabIndex={0}
       >
-        <p
-          className="current-weather-condition"
-          data-condition-tone={condition ? getConditionTone(condition) : undefined}
-        >
-          {condition ?? <span className="current-weather-unavailable">--</span>}
+        <p className="current-weather-meta">
+          <span
+            className="current-weather-stat-label"
+            data-condition-tone={condition ? getConditionTone(condition) : undefined}
+          >Humidity</span>
+          {' '}
+          {humidity !== null ? (
+            <span className="current-weather-stat-value" style={{ color: blueColor(humidity) }}>
+              {humidity}%
+            </span>
+          ) : (
+            <span className="current-weather-unavailable">--</span>
+          )}
+          <span aria-hidden="true"> · </span>
+          <span
+            className="current-weather-stat-label"
+            data-condition-tone={condition ? getConditionTone(condition) : undefined}
+          >Rainfall</span>
+          {' '}
+          {rainfall !== null ? (
+            <span className="current-weather-stat-value" style={{ color: blueColor(rainfall, 20) }}>
+              {rainfall} mm
+            </span>
+          ) : (
+            <span className="current-weather-unavailable">--</span>
+          )}
         </p>
         <span className="weather-row-chevron" aria-hidden="true" />
       </div>
 
-      <p className="current-weather-meta">
-        {humidity !== null ? (
-          <>Humidity {humidity}%</>
-        ) : (
-          <>Humidity <span className="current-weather-unavailable">--</span></>
-        )}
-        <span aria-hidden="true"> · </span>
-        {rainfall !== null ? (
-          <>Rainfall {rainfall} mm</>
-        ) : (
-          <>Rainfall <span className="current-weather-unavailable">--</span></>
-        )}
-      </p>
+      {condition && (
+        <p
+          className="current-weather-meta"
+          data-condition-tone={getConditionTone(condition)}
+        >
+          <span className="current-weather-forecast-label">Forecast: </span>
+          <span className="current-weather-forecast-value">{condition}</span>
+        </p>
+      )}
     </section>
   );
 }

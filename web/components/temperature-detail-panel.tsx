@@ -165,7 +165,7 @@ function TemperatureSensorCard({ item, windDirection, windSpeedKmh }: { item: Te
         <span className="temperature-station-value">
           {item.temperature !== null ? (
             <>
-              {item.temperature}
+              {Number(item.temperature).toFixed(1)}
               <span aria-hidden="true">°</span>
               <span className="sr-only"> degrees Celsius</span>
             </>

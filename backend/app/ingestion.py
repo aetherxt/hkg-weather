@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -65,6 +66,31 @@ def _archive_slot(fetched_at: datetime, interval: timedelta) -> datetime:
     )
 
 
+async def _fetch_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    dataset: str,
+    max_retries: int = 2,
+    base_delay: float = 1.0,
+) -> httpx.Response:
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code >= 500:
+                last_error = error
+            else:
+                raise DatasetUpstreamError(dataset) from error
+        except (httpx.TimeoutException, httpx.ConnectError) as error:
+            last_error = error
+        if attempt < max_retries:
+            await asyncio.sleep(base_delay * (2 ** attempt))
+    raise DatasetUpstreamError(dataset) from last_error
+
+
 async def ingest_dataset(
     database: AsyncDatabase,
     client: httpx.AsyncClient,
@@ -74,11 +100,12 @@ async def ingest_dataset(
     now: datetime | None = None,
 ) -> DatasetIngestionResult:
     try:
-        response = await client.get(target.url)
-        response.raise_for_status()
+        response = await _fetch_with_retry(client, target.url, target.dataset)
         raw_payload = response.content
         validated = validate(raw_payload)
-    except (httpx.HTTPError, UnicodeError, ValueError) as error:
+    except DatasetUpstreamError:
+        raise
+    except (UnicodeError, ValueError) as error:
         raise DatasetUpstreamError(target.dataset) from error
 
     fetched_at = (now or datetime.now(UTC)).astimezone(UTC)

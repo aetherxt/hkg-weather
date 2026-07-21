@@ -31,31 +31,11 @@ html {
 }
 
 * {
-  scrollbar-color: rgba(8, 62, 110, 0.3) var(--background);
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 *::-webkit-scrollbar {
-  width: 0.75rem;
-  height: 0.75rem;
-}
-
-*::-webkit-scrollbar-track {
-  background: var(--background);
-}
-
-*::-webkit-scrollbar-corner {
-  background: var(--background);
-}
-
-*::-webkit-scrollbar-thumb {
-  border: 0.2rem solid var(--background);
-  border-radius: 999px;
-  background: rgba(8, 62, 110, 0.3);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(8, 62, 110, 0.42);
+  display: none;
 }
 
 .weather-page {
@@ -73,7 +53,7 @@ html {
 .current-weather {
   width: min(100%, 72rem);
   box-sizing: border-box;
-  padding: calc(clamp(4rem, 8vh, 5.5rem) + 0.25rem) clamp(1.5rem, 6vw, 5rem) 0;
+  padding: clamp(4rem, 8vh, 5.5rem) clamp(1.5rem, 6vw, 5rem) 0;
 }
 
 .current-weather-temperature,
@@ -88,7 +68,7 @@ html {
   background-clip: text;
   -webkit-background-clip: text;
   font-size: clamp(7.5rem, 19vw, 14rem);
-  font-weight: 470;
+  font-weight: 600;
   letter-spacing: -0.085em;
   line-height: 0.78;
 }
@@ -143,7 +123,7 @@ html {
 
 .current-weather-temperature > span:first-child {
   display: inline-block;
-  margin-left: 0.02em;
+  margin-left: 0.05em;
   font-size: 0.42em;
   font-weight: 390;
   letter-spacing: -0.04em;
@@ -152,7 +132,7 @@ html {
 
 .current-weather-condition-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 1rem;
   width: min(100%, 38rem);
   margin-top: clamp(1rem, 2.5vw, 1.75rem);
@@ -197,9 +177,58 @@ html {
 
 .current-weather-meta {
   color: rgba(52, 63, 69, 0.58);
-  font-size: 0.92rem;
-  font-weight: 490;
-  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 430;
+  margin-top: 0rem;
+}
+
+.current-weather-meta .current-weather-stat-value {
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+  font-weight: 590;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.current-weather-meta .current-weather-stat-label {
+  font-size: 0.78rem;
+  font-weight: 680;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+[data-condition-tone="rain"] .current-weather-stat-label {
+  color: #1478b8;
+}
+
+[data-condition-tone="cloudy"] .current-weather-stat-label {
+  color: #68747c;
+}
+
+[data-condition-tone="sunny"] .current-weather-stat-label {
+  color: #d97706;
+}
+
+.current-weather-meta .current-weather-forecast-label {
+  margin: 0;
+}
+
+.current-weather-meta .current-weather-forecast-value {
+  margin: 0;
+  font-weight: 700;
+  color: rgba(28, 37, 41, 0.88);
+}
+
+[data-condition-tone="rain"] .current-weather-forecast-value {
+  color: #1478b8;
+}
+
+[data-condition-tone="cloudy"] .current-weather-forecast-value {
+  color: #68747c;
+}
+
+[data-condition-tone="sunny"] .current-weather-forecast-value {
+  color: #d97706;
 }
 
 .current-weather-unavailable {
@@ -345,12 +374,27 @@ html {
 }
 
 .weather-warnings-row {
-  display: grid;
   width: min(100%, 38rem);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.weather-left-column > .weather-warnings {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .weather-warnings-content {
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  position: relative;
 }
 
 .weather-warnings-heading-row {
@@ -358,6 +402,36 @@ html {
   align-items: center;
   gap: 1.5rem;
   margin-bottom: 0.9rem;
+  flex-shrink: 0;
+}
+
+.weather-warnings-scroll-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.weather-warnings-scroll-rail {
+  width: 6px;
+  flex-shrink: 0;
+  position: relative;
+  pointer-events: none;
+}
+
+.weather-warnings-scroll-rail-thumb {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: rgba(52, 63, 69, 0.3);
+  border-radius: 1px;
+}
+
+.weather-warnings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  max-height: 8rem;
 }
 
 .weather-warnings-heading-row .weather-row-chevron {
@@ -382,7 +456,7 @@ html {
 }
 
 .weather-warning {
-  padding-top: 0;
+  padding: 0 0 0 0.5rem;
 }
 
 .weather-warning + .weather-warning {
@@ -395,7 +469,7 @@ html {
 }
 
 .weather-warning-name {
-  color: rgba(16, 20, 23, 0.92);
+  color: rgba(12, 20, 80, 0.80);
   font-size: clamp(1.05rem, 1.8vw, 1.3rem);
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1177,6 +1251,33 @@ html {
   font-size: 0.85rem;
 }
 
+.rw-forecast-period {
+  margin: 0 0 0.3rem;
+  color: rgba(8, 62, 110, 0.56);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.rw-forecast-desc {
+  margin: 0 0 0.3rem;
+  line-height: 1.5;
+  font-size: 0.85rem;
+  color: rgba(24, 24, 24, 0.88);
+}
+
+.rw-forecast-outlook {
+  margin: 0;
+  line-height: 1.5;
+  font-size: 0.82rem;
+  color: rgba(24, 24, 24, 0.72);
+}
+
+.rw-forecast-outlook-label {
+  font-weight: 600;
+  color: rgba(8, 62, 110, 0.72);
+}
+
 .rw-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
@@ -1241,7 +1342,6 @@ html {
     transform: translateY(-0.35rem);
   }
   to {
-    clip-path: inset(0 0 0 0 round 0.35rem);
     opacity: 1;
     transform: translateY(0);
   }
@@ -1295,11 +1395,22 @@ html {
   bottom: 0;
   left: 0;
   z-index: 49;
-  height: calc(max(80px, env(safe-area-inset-bottom)) + 6rem);
+  height: calc(max(70px, env(safe-area-inset-bottom)) + 6rem);
+  pointer-events: none;
+}
+
+.weather-nav-reveal-zone::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1.5rem;
+  pointer-events: auto;
 }
 
 .weather-nav-reveal-zone:hover + .weather-nav,
-.weather-nav--zone:focus-within + .weather-nav {
+.weather-nav-reveal-zone:focus-within + .weather-nav {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
   pointer-events: auto;
@@ -1589,7 +1700,22 @@ html {
 }
 
 .weather-left-column {
+  display: flex;
+  flex-direction: column;
+  max-height: 110svh;
+  overflow: clip;
   animation: fade-in-section 0.5s ease-out;
+}
+
+.weather-left-column > .current-weather,
+.weather-left-column > .environmental-conditions {
+  flex-shrink: 0;
+}
+
+.weather-left-column > .weather-warnings {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .weather-detail-dock {

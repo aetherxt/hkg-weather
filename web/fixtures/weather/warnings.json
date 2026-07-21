@@ -1,6 +1,36 @@
 {
   "data": {
     "summary": {
+      "WTMW": {
+        "name": "Tsunami Warning",
+        "code": "WTMW",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T08:00:00+08:00",
+        "updateTime": "2026-07-20T08:00:00+08:00"
+      },
+      "WTCSGNL": {
+        "name": "Tropical Cyclone Warning Signal",
+        "code": "WTCSGNL",
+        "type": "8NE",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T06:00:00+08:00",
+        "updateTime": "2026-07-20T06:00:00+08:00"
+      },
+      "WRAIN": {
+        "name": "Rainstorm Warning Signal",
+        "code": "WRAINR",
+        "type": "Red",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T08:05:00+08:00",
+        "updateTime": "2026-07-20T08:05:00+08:00"
+      },
+      "WL": {
+        "name": "Landslip Warning",
+        "code": "WL",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T07:45:00+08:00",
+        "updateTime": "2026-07-20T07:45:00+08:00"
+      },
       "WTS": {
         "name": "Thunderstorm Warning",
         "code": "WTS",
@@ -8,10 +38,68 @@
         "issueTime": "2026-07-18T14:20:00+08:00",
         "expireTime": "2026-07-18T17:10:00+08:00",
         "updateTime": "2026-07-18T17:10:00+08:00"
+      },
+      "WFIRE": {
+        "name": "Fire Danger Warning",
+        "code": "WFIRE",
+        "type": "Yellow",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T07:00:00+08:00",
+        "updateTime": "2026-07-20T07:00:00+08:00"
+      },
+      "WHOT": {
+        "name": "Hot Weather Warning",
+        "code": "WHOT",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T06:30:00+08:00",
+        "updateTime": "2026-07-20T06:30:00+08:00"
+      },
+      "WCOLD": {
+        "name": "Cold Weather Warning",
+        "code": "WCOLD",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T06:30:00+08:00",
+        "updateTime": "2026-07-20T06:30:00+08:00"
+      },
+      "WFROST": {
+        "name": "Frost Warning",
+        "code": "WFROST",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T06:30:00+08:00",
+        "updateTime": "2026-07-20T06:30:00+08:00"
+      },
+      "WMSGNL": {
+        "name": "Strong Monsoon Signal",
+        "code": "WMSGNL",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T05:00:00+08:00",
+        "updateTime": "2026-07-20T05:00:00+08:00"
+      },
+      "WFNTSA": {
+        "name": "Special Announcement on Flooding in Northern New Territories",
+        "code": "WFNTSA",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T08:25:00+08:00",
+        "updateTime": "2026-07-20T08:25:00+08:00"
+      },
+      "WTCPRE8": {
+        "name": "Special Announcement on Tropical Cyclone Warning (Pre-No.8)",
+        "code": "WTCPRE8",
+        "actionCode": "ISSUE",
+        "issueTime": "2026-07-20T05:30:00+08:00",
+        "updateTime": "2026-07-20T05:30:00+08:00"
       }
     },
     "information": {
       "details": [
+        {
+          "contents": [
+            "The Red Rainstorm Warning was issued by the Hong Kong Observatory at 8:05 a.m. on 20 Jul 2026. Heavy rain has been falling or is expected to fall generally over Hong Kong, exceeding 100 millimetres in an hour, and is likely to continue."
+          ],
+          "warningStatementCode": "WRAIN",
+          "subtype": "Red",
+          "updateTime": "2026-07-20T08:05:00+08:00"
+        },
         {
           "contents": [
             "Thunderstorm Warning was cancelled at 5:10 p.m. on 18 Jul 2026."

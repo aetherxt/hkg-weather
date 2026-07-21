@@ -222,6 +222,45 @@ async def get_nine_day_forecast(
     )
 
 
+_WARNING_CODE_PRIORITY: dict[str, int] = {
+    "WTMW": 0,
+    "WTCSGNL": 1,
+    "WRAIN": 2,
+    "WTCPRE8": 3,
+    "WL": 4,
+    "WTS": 5,
+    "WFIRE": 6,
+    "WHOT": 7,
+    "WCOLD": 8,
+    "WFROST": 9,
+    "WMSGNL": 10,
+    "WFNTSA": 11,
+}
+
+_WARNING_TYPE_PRIORITY: dict[str, dict[str, int]] = {
+    "WTCSGNL": {
+        "10": 0, "9": 1,
+        "8NE": 2, "8NW": 3, "8SE": 4, "8SW": 5,
+        "3": 6, "1": 7,
+    },
+    "WRAIN": {
+        "Black": 0, "Red": 1, "Amber": 2, "Yellow": 2,
+    },
+    "WFIRE": {
+        "Red": 0, "Yellow": 1,
+    },
+}
+
+def _warning_sort_key(item: tuple[str, Any]) -> tuple[int, int]:
+    code = item[0]
+    warning = item[1] if isinstance(item[1], dict) else {}
+    code_priority = _WARNING_CODE_PRIORITY.get(code, 99)
+    type_priority = _WARNING_TYPE_PRIORITY.get(code, {}).get(
+        str(warning.get("type", "")), 0
+    )
+    return (code_priority, type_priority)
+
+
 @router.get("/warnings", response_model=DataResponse[WarningsData])
 async def get_warnings(
     response: Response,
@@ -244,11 +283,13 @@ async def get_warnings(
         payloads.append(payload)
         documents.append(stored)
 
+    summary = dict(sorted(payloads[0].items(), key=_warning_sort_key))
+
     set_latest_cache(response)
     metadata = list_response_meta("warnings", documents, len(documents))
     return DataResponse(
         data=WarningsData(
-            summary=payloads[0],
+            summary=summary,
             information=payloads[1],
             special_weather_tips=payloads[2],
         ),

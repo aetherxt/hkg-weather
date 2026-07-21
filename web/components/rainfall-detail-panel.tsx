@@ -3,6 +3,7 @@
 import type { WeatherSectionState } from "@/lib/weather/state";
 import type {
   DistrictRainfallReading,
+  LocalForecast,
   StationRainfallResponse,
 } from "@/lib/weather/types";
 
@@ -19,6 +20,43 @@ function rainfallMm(value: string): number | null {
   if (value === "M" || value === "NIL") return null;
   const parsed = parseFloat(value);
   return isNaN(parsed) ? null : parsed;
+}
+
+function forecastSection(
+  section: WeatherSectionState<LocalForecast> | undefined,
+) {
+  if (
+    !section ||
+    (section.status !== "ready" && section.status !== "stale")
+  ) {
+    return null;
+  }
+
+  const { forecastPeriod, forecastDesc, outlook } = section.data;
+  const updatedAt = section.sourceUpdatedAt ?? section.fetchedAt;
+
+  if (!forecastDesc) return null;
+
+  return (
+    <section className="rw-section">
+      <div className="rw-section-header">
+        <h3 className="rw-section-heading">Local Weather Forecast</h3>
+        {updatedAt && (
+          <span className="rw-updated-at">Updated At: {formatTime(updatedAt)}</span>
+        )}
+      </div>
+      {forecastPeriod && (
+        <p className="rw-forecast-period">{forecastPeriod}</p>
+      )}
+      <p className="rw-forecast-desc">{forecastDesc}</p>
+      {outlook && (
+        <p className="rw-forecast-outlook">
+          <span className="rw-forecast-outlook-label">Outlook: </span>
+          {outlook}
+        </p>
+      )}
+    </section>
+  );
 }
 
 function districtSection(readings: DistrictRainfallReading[]) {
@@ -69,7 +107,7 @@ function stationSection(
       <div className="rw-section-header">
         <h3 className="rw-section-heading">Station Rainfall (past hour)</h3>
         {updatedAt && (
-          <span className="rw-updated-at">{formatTime(updatedAt)}</span>
+          <span className="rw-updated-at">Updated At: {formatTime(updatedAt)}</span>
         )}
       </div>
       <div className="rw-grid">
@@ -90,12 +128,15 @@ function stationSection(
 export function RainfallDetailPanel({
   rainfallReadings,
   stationRainfall,
+  localForecast,
 }: {
   rainfallReadings: DistrictRainfallReading[];
   stationRainfall: WeatherSectionState<StationRainfallResponse>;
+  localForecast: WeatherSectionState<LocalForecast>;
 }) {
   return (
     <div className="rw-panel">
+      {forecastSection(localForecast)}
       {stationSection(stationRainfall)}
       {districtSection(rainfallReadings)}
     </div>
