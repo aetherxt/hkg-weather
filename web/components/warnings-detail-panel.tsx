@@ -20,10 +20,12 @@ function formatDate(iso: string) {
   });
 }
 
+function formatDateTime(iso: string) {
+  return `${formatDate(iso)}, ${formatTime(iso)}`;
+}
+
 function formatWarningTime(value: string, showDate: boolean) {
-  return showDate
-    ? `${formatDate(value)}, ${formatTime(value)}`
-    : formatTime(value);
+  return showDate ? formatDateTime(value) : formatTime(value);
 }
 
 function warningTimeParts(value: string) {
@@ -44,10 +46,11 @@ interface WarningsDetailPanelProps {
 }
 
 export function WarningsDetailPanel({ warnings }: WarningsDetailPanelProps) {
+  const tips = warnings.specialWeatherTips?.swt ?? [];
   const entries = activeWarnings(warnings.summary);
   const details = warnings.information?.details ?? [];
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && tips.length === 0) {
     return (
       <div className="wp-panel">
         <p className="wp-unavailable">No active warnings</p>
@@ -65,6 +68,18 @@ export function WarningsDetailPanel({ warnings }: WarningsDetailPanelProps) {
 
   return (
     <div className="wp-panel">
+      {tips.length > 0 && (
+        <section className="wp-section wp-section-tips">
+          <h3 className="wp-section-heading">Special Weather Tips</h3>
+          {tips.map((tip, i) => (
+            <div className="wp-tip" key={i}>
+              <p className="wp-tip-desc">{tip.desc}</p>
+              <span className="wp-tip-time">{formatDateTime(tip.updateTime)}</span>
+            </div>
+          ))}
+        </section>
+      )}
+
       {entries.map((warning) => {
         const detail = warningDetailMap.get(warning.code);
         const actionTime =
@@ -114,7 +129,7 @@ export function WarningsDetailPanel({ warnings }: WarningsDetailPanelProps) {
 
             {detail?.contents ? (
               <ul className="wp-contents">
-                {detail.contents.map((content, i) => (
+                {detail.contents.slice(0, 2).map((content, i) => (
                   <li className="wp-content" key={i}>
                     {content}
                   </li>

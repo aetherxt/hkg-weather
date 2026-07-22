@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useLayoutEffect } from "react";
+import { useCallback, useRef, useState, useLayoutEffect } from "react";
 import { useSettings } from "@/lib/weather/settings";
 
 const THEME_OPTIONS = [
@@ -8,6 +8,86 @@ const THEME_OPTIONS = [
   { value: "light" as const, label: "Light" },
   { value: "dark" as const, label: "Dark" },
 ];
+
+interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+function SettingsDropdown({
+  value,
+  options,
+  defaultOption,
+  onChange,
+}: {
+  value: string;
+  options: DropdownOption[];
+  defaultOption: DropdownOption;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = options.find((o) => o.value === value) ?? defaultOption;
+
+  const handleSelect = useCallback(
+    (v: string) => {
+      onChange(v);
+      setOpen(false);
+    },
+    [onChange],
+  );
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="settings-dropdown" ref={ref}>
+      <button
+        className="settings-dropdown-trigger"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span>{selected.label}</span>
+        <svg className="settings-dropdown-arrow" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
+          <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <ul className="settings-dropdown-list" role="listbox">
+          <li
+            className={`settings-dropdown-option${defaultOption.value === selected.value ? " settings-dropdown-option-selected" : ""}`}
+            role="option"
+            aria-selected={defaultOption.value === selected.value}
+            onClick={() => handleSelect(defaultOption.value)}
+          >
+            {defaultOption.label}
+          </li>
+          {options.map((opt) => (
+            <li
+              key={opt.value}
+              className={`settings-dropdown-option${opt.value === selected.value ? " settings-dropdown-option-selected" : ""}`}
+              role="option"
+              aria-selected={opt.value === selected.value}
+              onClick={() => handleSelect(opt.value)}
+            >
+              {opt.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function SettingsPopup({ onClose }: { onClose: () => void }) {
   const {
@@ -40,30 +120,22 @@ export function SettingsPopup({ onClose }: { onClose: () => void }) {
       <div className="settings-popup">
         <div className="settings-group">
           <span className="settings-label">Temperature District</span>
-          <select
-            className="settings-select"
+          <SettingsDropdown
             value={settings.temperatureDistrict}
-            onChange={(e) => updateSettings({ temperatureDistrict: e.target.value })}
-          >
-            <option value="__default__">Default (HKO)</option>
-            {availableTemperatureStations.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+            defaultOption={{ value: "__default__", label: "Default (HKO)" }}
+            options={availableTemperatureStations.map((s) => ({ value: s, label: s }))}
+            onChange={(v) => updateSettings({ temperatureDistrict: v })}
+          />
         </div>
 
         <div className="settings-group">
           <span className="settings-label">Rainfall District</span>
-          <select
-            className="settings-select"
+          <SettingsDropdown
             value={settings.rainfallDistrict}
-            onChange={(e) => updateSettings({ rainfallDistrict: e.target.value })}
-          >
-            <option value="__default__">Default (HKO)</option>
-            {availableRainfallDistricts.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+            defaultOption={{ value: "__default__", label: "Default (HKO)" }}
+            options={availableRainfallDistricts.map((d) => ({ value: d, label: d }))}
+            onChange={(v) => updateSettings({ rainfallDistrict: v })}
+          />
         </div>
 
         <div className="settings-group">

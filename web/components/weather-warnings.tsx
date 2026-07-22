@@ -1,6 +1,6 @@
 import type { WarningSummary } from "@/lib/weather";
 import { warningDisplayName } from "@/lib/weather";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { type KeyboardEvent } from "react";
 
 import type { WeatherDetailInteractionProps } from "@/components/weather-detail-sections";
 
@@ -75,35 +75,8 @@ export function WeatherWarnings({
   const warningEntries = Object.entries(warnings).filter(
     ([, warning]) => warning.actionCode !== "CANCEL",
   );
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollState, setScrollState] = useState({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 });
-
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setScrollState({
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-      clientHeight: el.clientHeight,
-    });
-  }, []);
-
-  useEffect(() => {
-    handleScroll();
-  }, [handleScroll]);
-
-  const shouldScroll = warningEntries.length >= 3;
-
-  const { scrollTop, scrollHeight, clientHeight } = scrollState;
-  const maxScroll = shouldScroll ? scrollHeight - clientHeight : 0;
-  const showThumb = maxScroll > 0;
-  const thumbHeight = showThumb
-    ? Math.max(10, (clientHeight / scrollHeight) * clientHeight * 0.8)
-    : 0;
-  const thumbTop = showThumb
-    ? (scrollTop / maxScroll) * (clientHeight - thumbHeight)
-    : 0;
+  const visible = warningEntries.slice(0, 2);
+  const hasMore = warningEntries.length > 2;
 
   if (warningEntries.length === 0) {
     return (
@@ -161,68 +134,54 @@ export function WeatherWarnings({
             )}
             <span className="weather-row-chevron" aria-hidden="true" />
           </div>
-          <div className="weather-warnings-scroll-row">
-            {shouldScroll && showThumb && (
-              <div className="weather-warnings-scroll-rail" aria-hidden="true">
-                <div
-                  className="weather-warnings-scroll-rail-thumb"
-                  style={{ height: thumbHeight, top: thumbTop }}
-                />
-              </div>
-            )}
-            <div
-              className="weather-warnings-scroll"
-              ref={scrollRef}
-              onScroll={handleScroll}
-              style={shouldScroll ? undefined : { maxHeight: "none", overflowY: "visible" }}
-            >
-              <ul className="weather-warning-list">
-              {warningEntries.map(([category, warning]) => {
-                const actionTime =
-                  warning.actionCode === "ISSUE"
-                    ? warning.issueTime
-                    : warning.actionCode === "UPDATE"
-                      ? warning.updateTime
-                      : undefined;
-                const showDates = Boolean(
-                  actionTime &&
-                    warning.expireTime &&
-                    warningTimeParts(actionTime).date !==
-                      warningTimeParts(warning.expireTime).date,
-                );
+          <ul className="weather-warning-list">
+            {visible.map(([category, warning]) => {
+              const actionTime =
+                warning.actionCode === "ISSUE"
+                  ? warning.issueTime
+                  : warning.actionCode === "UPDATE"
+                    ? warning.updateTime
+                    : undefined;
+              const showDates = Boolean(
+                actionTime &&
+                  warning.expireTime &&
+                  warningTimeParts(actionTime).date !==
+                    warningTimeParts(warning.expireTime).date,
+              );
 
-                return (
-                  <li className="weather-warning" key={category}>
-                    <p className="weather-warning-name">{warningDisplayName(warning)}</p>
-                    <p className="weather-warning-meta">
-                      <span className="weather-warning-action">
-                        {warning.actionCode}
-                      </span>
-                      {warning.actionCode === "ISSUE" && warning.issueTime ? (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          Issued {formatWarningTime(warning.issueTime, showDates)}
-                        </>
-                      ) : null}
-                      {warning.actionCode === "UPDATE" ? (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          Updated {formatWarningTime(warning.updateTime, showDates)}
-                        </>
-                      ) : null}
-                      {warning.expireTime ? (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          Expires {formatWarningTime(warning.expireTime, showDates)}
-                        </>
-                      ) : null}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-            </div>
-          </div>
+              return (
+                <li className="weather-warning" key={category}>
+                  <p className="weather-warning-name">{warningDisplayName(warning)}</p>
+                  <p className="weather-warning-meta">
+                    <span className="weather-warning-action">
+                      {warning.actionCode}
+                    </span>
+                    {warning.actionCode === "ISSUE" && warning.issueTime ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        Issued {formatWarningTime(warning.issueTime, showDates)}
+                      </>
+                    ) : null}
+                    {warning.actionCode === "UPDATE" ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        Updated {formatWarningTime(warning.updateTime, showDates)}
+                      </>
+                    ) : null}
+                    {warning.expireTime ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        Expires {formatWarningTime(warning.expireTime, showDates)}
+                      </>
+                    ) : null}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+          {hasMore && (
+            <p className="weather-warnings-more">...More</p>
+          )}
         </div>
       </div>
     </section>
