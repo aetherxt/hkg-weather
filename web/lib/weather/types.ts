@@ -253,3 +253,15 @@ export interface RegionalObservations {
   temperature: ListResponse<TemperatureReading>;
   wind: ListResponse<WindReading>;
 }
+
+export interface DashboardSnapshot {
+  warnings: DataResponse<Warnings> | null;
+  current: DataResponse<CurrentWeather> | null;
+  localForecast: DataResponse<LocalForecast> | null;
+  nineDayForecast: DataResponse<NineDayForecast> | null;
+  regionalTemperature: ListResponse<TemperatureReading> | null;
+  regionalWind: ListResponse<WindReading> | null;
+  lampposts: ListResponse<LamppostReading> | null;
+  astronomical: DataResponse<AstronomicalTimes> | null;
+  stationRainfall: DataResponse<StationRainfallResponse> | null;
+}

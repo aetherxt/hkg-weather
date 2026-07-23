@@ -57,8 +57,9 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
   response models and read helpers live in `weather_read_models.py` and
   `weather_read_common.py`; gridded-rainfall parsing is isolated in
   `rainfall_nowcast.py`.
-- The implemented public API contains 27 `GET /api/weather/*` route patterns:
-  13 latest-data routes, six map-data routes and eight archive routes.
+- The implemented public API contains 28 `GET /api/weather/*` route patterns:
+  one aggregate dashboard route, 13 focused latest-data routes, six map-data
+  routes and eight archive routes.
 - Public readers decode BSON binary payloads and return camelCase application
   contracts; frontend code never receives MongoDB field names or BSON values.
 - `/api/health` is the public application health endpoint.
@@ -68,8 +69,12 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
 ### 1.3 API response caching
 
 - Public `GET /api/weather/*` responses use Vercel CDN caching to avoid querying MongoDB once per client.
-- Fast-changing observations, warning information and latest-frame indexes use a 30–60 second CDN lifetime.
+- The aggregate non-map dashboard response and fast-changing observations use
+  a five-minute CDN lifetime.
 - Current weather uses a five-minute CDN lifetime; local and nine-day forecasts use a ten-minute lifetime.
+- The home page loads one aggregate dashboard response, refreshes it at most
+  every ten minutes while visible, and performs a focus refresh only when the
+  last request is at least five minutes old. Hidden tabs do not poll.
 - Timestamped map frames use content-specific URLs and long-lived immutable caching.
 - Public responses use `stale-while-revalidate` so the CDN can serve a cached response while refreshing it from FastAPI and MongoDB.
 - Authenticated `POST /api/cron/*`, health, error and user-specific responses are never cached.
@@ -193,6 +198,10 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 - Do not Base64-encode binary payloads.
 - Preserve `fetched_at`, `source_updated_at` or observation time, `valid_at`, `lead_minutes`, `source_url`, `byte_size`, `content_hash` and `expires_at` where applicable.
 - Keep one replaceable latest document for products needed by the live page.
+- Compare exact raw content hashes before validation and full replacement.
+  Unchanged content-addressed payloads and repeat calls within the same archive
+  slot update only `fetched_at`; a new slot still receives its required
+  archive record even when its bytes match the previous slot.
 - Insert an archive document only when its upstream timestamp or content hash changes.
 - Datasets marked `Latest only` replace their current document and never write to the archive collection.
 - No archived API record is retained for more than three days.

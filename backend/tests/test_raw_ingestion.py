@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -102,3 +103,118 @@ def test_raw_archive_policy_requires_a_consistent_interval() -> None:
             default_content_type="text/csv",
             archive_interval=timedelta(minutes=30),
         )
+
+
+def test_unchanged_slot_payload_skips_work_within_the_same_slot() -> None:
+    raw_payload = b"time,value\n202607171800,1\n"
+    response = httpx.Response(
+        200,
+        content=raw_payload,
+        request=httpx.Request("GET", DUMMY_URL),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(return_value=response)
+    latest = MagicMock()
+    latest.find_one = AsyncMock(
+        return_value={
+            "content_hash": sha256(raw_payload).hexdigest(),
+            "source_updated_at": datetime(2026, 7, 17, 10, tzinfo=UTC),
+            "fetched_at": datetime(2026, 7, 17, 10, 5, tzinfo=UTC),
+        }
+    )
+    latest.update_one = AsyncMock()
+    latest.replace_one = AsyncMock()
+    archive = MagicMock()
+    archive.create_index = AsyncMock()
+    archive.update_one = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.side_effect = {
+        "latest": latest,
+        "archive": archive,
+    }.__getitem__
+    validate = MagicMock(
+        return_value=ValidatedRawPayload(
+            source_updated_at=datetime(2026, 7, 17, 10, tzinfo=UTC)
+        )
+    )
+    spec = RawDatasetSpec(
+        dataset="dummy_csv",
+        document_id="dummy_csv",
+        url=DUMMY_URL,
+        validate=validate,
+        default_content_type="text/csv",
+        archive_policy=ArchivePolicy.SLOT,
+        archive_interval=timedelta(minutes=30),
+    )
+
+    result = asyncio.run(
+        ingest_raw_dataset(
+            database,
+            client,
+            spec,
+            now=datetime(2026, 7, 17, 10, 20, tzinfo=UTC),
+        )
+    )
+
+    assert result.changed is False
+    validate.assert_not_called()
+    latest.update_one.assert_awaited_once()
+    latest.replace_one.assert_not_awaited()
+    archive.update_one.assert_not_awaited()
+
+
+def test_unchanged_slot_payload_is_archived_after_slot_boundary() -> None:
+    raw_payload = b"time,value\n202607171800,1\n"
+    response = httpx.Response(
+        200,
+        content=raw_payload,
+        request=httpx.Request("GET", DUMMY_URL),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(return_value=response)
+    latest = MagicMock()
+    latest.find_one = AsyncMock(
+        return_value={
+            "content_hash": sha256(raw_payload).hexdigest(),
+            "source_updated_at": datetime(2026, 7, 17, 10, tzinfo=UTC),
+            "fetched_at": datetime(2026, 7, 17, 10, 20, tzinfo=UTC),
+        }
+    )
+    latest.update_one = AsyncMock()
+    latest.replace_one = AsyncMock()
+    archive = MagicMock()
+    archive.create_index = AsyncMock()
+    archive.update_one = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.side_effect = {
+        "latest": latest,
+        "archive": archive,
+    }.__getitem__
+    validate = MagicMock(
+        return_value=ValidatedRawPayload(
+            source_updated_at=datetime(2026, 7, 17, 10, tzinfo=UTC)
+        )
+    )
+    spec = RawDatasetSpec(
+        dataset="dummy_csv",
+        document_id="dummy_csv",
+        url=DUMMY_URL,
+        validate=validate,
+        default_content_type="text/csv",
+        archive_policy=ArchivePolicy.SLOT,
+        archive_interval=timedelta(minutes=30),
+    )
+
+    result = asyncio.run(
+        ingest_raw_dataset(
+            database,
+            client,
+            spec,
+            now=datetime(2026, 7, 17, 10, 35, tzinfo=UTC),
+        )
+    )
+
+    assert result.changed is False
+    validate.assert_called_once_with(raw_payload)
+    latest.replace_one.assert_awaited_once()
+    archive.update_one.assert_awaited_once()

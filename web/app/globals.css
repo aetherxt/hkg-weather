@@ -614,33 +614,46 @@ html {
   min-height: 20rem;
 }
 
-.sun-path-backdrop {
-  fill: #d9e9f4;
-}
-
 .sun-path-curve {
   fill: none;
+  stroke: rgba(11, 63, 106, 0.3);
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.sun-path-curve-above {
-  stroke: rgba(255, 255, 255, 0.78);
-  stroke-width: 5;
+.sun-path-curve-day {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 2.5;
 }
 
-.sun-path-curve-below {
-  stroke: rgba(30, 82, 119, 0.42);
-  stroke-width: 4;
+.sun-horizon-gradient {
+  pointer-events: none;
+}
+
+.sun-path-glow {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: url("#sun-path-soft-glow");
+}
+
+.sun-path-glow-day {
+  stroke: rgba(255, 255, 255, 0.34);
+}
+
+.sun-path-glow-limit {
+  stroke: rgba(96, 174, 226, 0.12);
 }
 
 .sun-path-horizon {
-  stroke: rgba(43, 105, 149, 0.34);
-  stroke-width: 2;
+  stroke: rgba(11, 63, 106, 0.16);
+  stroke-width: 1;
 }
 
 .sun-path-cloud {
-  fill: rgba(190, 207, 218, 0.48);
+  fill: #cbd8e0;
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -650,12 +663,12 @@ html {
 }
 
 .sun-path-cloud-two {
-  fill: rgba(167, 190, 205, 0.38);
+  fill: #b9cbd6;
   animation: sun-cloud-drift 11s ease-in-out -3s infinite alternate-reverse;
 }
 
 .sun-path-cloud-three {
-  fill: rgba(211, 223, 230, 0.52);
+  fill: #d8e2e8;
   animation: sun-cloud-drift 8s ease-in-out -5s infinite alternate;
 }
 
@@ -665,12 +678,15 @@ html {
   animation: sun-arrive 420ms cubic-bezier(0.22, 0.78, 0.3, 1) both;
 }
 
-.sun-path-sun-disc {
-  fill: #e9a72e;
+.sun-path-sun-glow {
+  fill: rgba(255, 204, 92, 0.2);
+  filter: url("#sun-disc-soft-glow");
 }
 
-.sun-path-sun-face {
-  fill: #f7c653;
+.sun-path-sun-disc {
+  fill: #f5c451;
+  stroke: rgba(255, 255, 255, 0.74);
+  stroke-width: 1.2;
 }
 
 .sun-current-time {

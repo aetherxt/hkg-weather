@@ -1,6 +1,7 @@
 import type {
   AstronomicalTimes,
   CurrentWeather,
+  DashboardSnapshot,
   DataResponse,
   LamppostReading,
   ListResponse,
@@ -246,6 +247,8 @@ export function createWeatherClient(options: WeatherClientOptions = {}) {
   }
 
   return {
+    getDashboard: (init?: RequestInit) =>
+      data<DashboardSnapshot>("/dashboard", init),
     getWarnings: (init?: RequestInit) => data<Warnings>("/warnings", init),
     getCurrentWeather: (init?: RequestInit) =>
       data<CurrentWeather>("/current", init),

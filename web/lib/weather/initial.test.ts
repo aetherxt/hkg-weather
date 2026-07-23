@@ -7,22 +7,39 @@ import {
   loadingWeatherSection,
   retryingWeatherSection,
 } from "./state.ts";
-import { fixtureFetch } from "./test-helpers.ts";
+import { fixtureFetch, readWeatherFixture } from "./test-helpers.ts";
 
-const successRoutes = {
-  "/api/weather/warnings": "warnings",
-  "/api/weather/current": "current",
-  "/api/weather/forecast/local": "local-forecast",
-  "/api/weather/forecast/nine-day": "nine-day-forecast",
-  "/api/weather/regional/temperature": "regional-temperature",
-  "/api/weather/regional/wind": "regional-wind",
-  "/api/weather/lampposts": "lampposts",
-  "/api/weather/sun": "astronomical",
-  "/api/weather/rainfall/stations": "station-rainfall",
-} as const;
+function dashboardResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    data: {
+      warnings: readWeatherFixture("warnings"),
+      current: readWeatherFixture("current"),
+      localForecast: readWeatherFixture("local-forecast"),
+      nineDayForecast: readWeatherFixture("nine-day-forecast"),
+      regionalTemperature: readWeatherFixture("regional-temperature"),
+      regionalWind: readWeatherFixture("regional-wind"),
+      lampposts: readWeatherFixture("lampposts"),
+      astronomical: readWeatherFixture("astronomical"),
+      stationRainfall: readWeatherFixture("station-rainfall"),
+      ...overrides,
+    },
+    meta: {
+      dataset: "dashboard",
+      sourceUpdatedAt: "2026-07-18T10:00:00Z",
+      fetchedAt: "2026-07-18T10:00:17.975000Z",
+    },
+  };
+}
 
 test("initial page data loads every non-map section from fixtures", async () => {
-  const client = createWeatherClient({ fetch: fixtureFetch(successRoutes) });
+  let requests = 0;
+  const client = createWeatherClient({
+    fetch: async (input) => {
+      requests += 1;
+      assert.equal(input.toString(), "/api/weather/dashboard");
+      return Response.json(dashboardResponse());
+    },
+  });
 
   const state = await loadInitialWeather(
     client,
@@ -38,6 +55,7 @@ test("initial page data loads every non-map section from fixtures", async () => 
   assert.equal(state.lampposts.status, "ready");
   assert.equal(state.astronomical.status, "ready");
   assert.equal(state.stationRainfall.status, "ready");
+  assert.equal(requests, 1);
 
   if (state.warnings.status === "stale") {
     assert.equal(state.warnings.sourceUpdatedAt, "2026-07-18T09:10:00Z");
@@ -49,15 +67,9 @@ test("initial page data loads every non-map section from fixtures", async () => 
   }
 });
 
-test("one unavailable feed does not fail the other initial sections", async () => {
+test("one unavailable dashboard section does not fail the others", async () => {
   const client = createWeatherClient({
-    fetch: fixtureFetch({
-      ...successRoutes,
-      "/api/weather/current": {
-        status: 503,
-        body: { detail: "Weather storage unavailable" },
-      },
-    }),
+    fetch: async () => Response.json(dashboardResponse({ current: null })),
   });
 
   const state = await loadInitialWeather(
@@ -73,6 +85,23 @@ test("one unavailable feed does not fail the other initial sections", async () =
   }
   assert.notEqual(state.localForecast.status, "unavailable");
   assert.notEqual(state.regionalTemperature.status, "unavailable");
+});
+
+test("an unavailable dashboard request marks every initial section unavailable", async () => {
+  const client = createWeatherClient({
+    fetch: fixtureFetch({
+      "/api/weather/dashboard": {
+        status: 503,
+        body: { detail: "Weather storage unavailable" },
+      },
+    }),
+  });
+
+  const state = await loadInitialWeather(client);
+
+  assert.equal(state.current.status, "unavailable");
+  assert.equal(state.warnings.status, "unavailable");
+  assert.equal(state.astronomical.status, "unavailable");
 });
 
 test("loading and retrying states share the section-state vocabulary", () => {

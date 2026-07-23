@@ -141,6 +141,18 @@ class AstronomicalTimes(PublicModel):
     moonset: str | None
 
 
+class DashboardSnapshot(PublicModel):
+    warnings: DataResponse[WarningsData] | None
+    current: DataResponse[dict[str, Any]] | None
+    local_forecast: DataResponse[dict[str, Any]] | None
+    nine_day_forecast: DataResponse[dict[str, Any]] | None
+    regional_temperature: ListResponse[TemperatureReading] | None
+    regional_wind: ListResponse[WindReading] | None
+    lampposts: ListResponse[LamppostReading] | None
+    astronomical: DataResponse[AstronomicalTimes] | None
+    station_rainfall: DataResponse[dict[str, Any]] | None
+
+
 class ArchivedObservation(PublicModel):
     source_updated_at: datetime | None
     fetched_at: datetime

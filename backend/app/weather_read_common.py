@@ -40,9 +40,10 @@ MAX_ARCHIVE_RESULTS = 512
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 LATEST_BROWSER_CACHE = "public, max-age=0, must-revalidate"
-FAST_CDN_CACHE = "max-age=60, stale-while-revalidate=300"
+FAST_CDN_CACHE = "max-age=300, stale-while-revalidate=600"
 CURRENT_CDN_CACHE = "max-age=300, stale-while-revalidate=600"
 FORECAST_CDN_CACHE = "max-age=600, stale-while-revalidate=1200"
+DASHBOARD_CDN_CACHE = "max-age=300, stale-while-revalidate=600"
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 
 ReadDatabase = Annotated[AsyncDatabase, Depends(get_read_database)]
@@ -92,6 +93,11 @@ def set_latest_cache(
     else:
         cdn_cache = FAST_CDN_CACHE
     response.headers["Vercel-CDN-Cache-Control"] = cdn_cache
+
+
+def set_dashboard_cache(response: Response) -> None:
+    response.headers["Cache-Control"] = LATEST_BROWSER_CACHE
+    response.headers["Vercel-CDN-Cache-Control"] = DASHBOARD_CDN_CACHE
 
 
 def reader_error(status_code: int, detail: str) -> HTTPException:

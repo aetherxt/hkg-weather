@@ -13,6 +13,36 @@ const CHART = {
   sunsetX: 562,
 };
 
+const CLOUD_PATHS = {
+  rounded:
+    "M 17 60 C 8 60 0 52 0 42 C 0 32 8 24 18 24 C 23 10 35 0 50 0 C 65 0 77 11 81 25 C 92 26 100 34 100 45 C 100 53 94 60 85 60 Z",
+  layered:
+    "M 13 60 C 6 60 0 53 0 45 C 0 37 6 30 14 29 C 17 20 24 14 34 14 C 38 5 47 0 57 0 C 69 0 78 8 80 19 C 91 20 100 29 100 41 C 100 52 92 60 82 60 Z",
+  compact:
+    "M 16 60 C 7 60 0 53 0 44 C 0 35 7 28 16 27 C 20 20 27 16 35 17 C 40 6 49 0 60 0 C 73 0 83 10 84 23 C 93 25 100 33 100 43 C 100 52 93 60 84 60 Z",
+} as const;
+
+function FlatCloud({
+  x,
+  y,
+  width,
+  height,
+  variant,
+}: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  variant: keyof typeof CLOUD_PATHS;
+}) {
+  return (
+    <path
+      d={CLOUD_PATHS[variant]}
+      transform={`translate(${x} ${y}) scale(${width / 100} ${height / 60})`}
+    />
+  );
+}
+
 function timeToMinutes(value: string): number | null {
   const match = /^(\d{1,2}):(\d{2})/.exec(value.trim());
   if (!match) return null;
@@ -90,7 +120,7 @@ export function SunPathPanel({
     };
   }, [now, sunrise, sunset]);
 
-  const curvePath = sampledPath(24, 616);
+  const curvePath = sampledPath(CHART.sunriseX, CHART.sunsetX);
 
   return (
     <section
@@ -106,38 +136,65 @@ export function SunPathPanel({
         aria-label={`Sunrise at ${sunrise}, sunset at ${sunset}`}
       >
         <defs>
-          <clipPath id="sun-path-above-horizon">
-            <rect x="0" y="0" width="640" height={CHART.horizonY} />
-          </clipPath>
-          <clipPath id="sun-path-below-horizon">
-            <rect
-              x="0"
-              y={CHART.horizonY}
-              width="640"
-              height={350 - CHART.horizonY}
-            />
-          </clipPath>
+          <linearGradient id="sun-horizon-upper" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#88c8f2" stopOpacity="0" />
+            <stop offset="1" stopColor="#78bce9" stopOpacity="0.28" />
+          </linearGradient>
+          <linearGradient id="sun-horizon-lower" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#1d5f91" stopOpacity="0.26" />
+            <stop offset="1" stopColor="#17466c" stopOpacity="0.04" />
+          </linearGradient>
+          <filter id="sun-path-soft-glow" x="-20%" y="-40%" width="140%" height="180%">
+            <feGaussianBlur stdDeviation="1.5" />
+          </filter>
+          <filter id="sun-disc-soft-glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="3" />
+          </filter>
         </defs>
 
-        <rect className="sun-path-backdrop" x="0" y="0" width="640" height="350" />
+        <rect
+          className="sun-horizon-gradient"
+          x="0"
+          y="0"
+          width="640"
+          height={CHART.horizonY}
+          fill="url(#sun-horizon-upper)"
+        />
+        <rect
+          className="sun-horizon-gradient"
+          x="0"
+          y={CHART.horizonY}
+          width="640"
+          height={350 - CHART.horizonY}
+          fill="url(#sun-horizon-lower)"
+        />
 
         <g className="sun-path-cloud sun-path-cloud-one" aria-hidden="true">
-          <ellipse cx="116" cy="91" rx="34" ry="11" />
-          <circle cx="99" cy="86" r="13" />
-          <circle cx="119" cy="78" r="18" />
-          <circle cx="140" cy="87" r="13" />
+          <FlatCloud
+            x={82}
+            y={60}
+            width={69}
+            height={36}
+            variant="rounded"
+          />
         </g>
         <g className="sun-path-cloud sun-path-cloud-two" aria-hidden="true">
-          <ellipse cx="465" cy="121" rx="40" ry="12" />
-          <circle cx="445" cy="115" r="14" />
-          <circle cx="468" cy="105" r="20" />
-          <circle cx="493" cy="116" r="14" />
+          <FlatCloud
+            x={425}
+            y={84}
+            width={80}
+            height={43}
+            variant="layered"
+          />
         </g>
         <g className="sun-path-cloud sun-path-cloud-three" aria-hidden="true">
-          <ellipse cx="350" cy="63" rx="25" ry="8" />
-          <circle cx="338" cy="59" r="9" />
-          <circle cx="352" cy="53" r="13" />
-          <circle cx="367" cy="59" r="9" />
+          <FlatCloud
+            x={325}
+            y={40}
+            width={52}
+            height={28}
+            variant="compact"
+          />
         </g>
 
         <line
@@ -147,15 +204,28 @@ export function SunPathPanel({
           x2="640"
           y2={CHART.horizonY}
         />
+        <g className="sun-path-glow" aria-hidden="true">
+          <path className="sun-path-glow-day" d={curvePath} />
+          <path
+            className="sun-path-glow-limit"
+            d={`M ${CHART.sunriseX} ${CHART.horizonY} C 59 262, 31 277, 0 279`}
+          />
+          <path
+            className="sun-path-glow-limit"
+            d={`M ${CHART.sunsetX} ${CHART.horizonY} C 581 262, 609 277, 640 279`}
+          />
+        </g>
         <path
-          className="sun-path-curve sun-path-curve-above"
+          className="sun-path-curve sun-path-curve-day"
           d={curvePath}
-          clipPath="url(#sun-path-above-horizon)"
         />
         <path
-          className="sun-path-curve sun-path-curve-below"
-          d={curvePath}
-          clipPath="url(#sun-path-below-horizon)"
+          className="sun-path-curve sun-path-limit"
+          d={`M ${CHART.sunriseX} ${CHART.horizonY} C 59 262, 31 277, 0 279`}
+        />
+        <path
+          className="sun-path-curve sun-path-limit"
+          d={`M ${CHART.sunsetX} ${CHART.horizonY} C 581 262, 609 277, 640 279`}
         />
 
         {sunState.isDaylight ? (
@@ -166,8 +236,8 @@ export function SunPathPanel({
             <text className="sun-current-time" textAnchor="middle" y="-31">
               {displayTime(now)}
             </text>
+            <circle className="sun-path-sun-glow" r="25" />
             <circle className="sun-path-sun-disc" r="20" />
-            <circle className="sun-path-sun-face" r="15" />
           </g>
         ) : null}
 

@@ -1,8 +1,14 @@
 import type { WeatherClient } from "./client.ts";
-import { loadWeatherSection, type WeatherSectionState } from "./state.ts";
+import {
+  loadedWeatherSection,
+  unavailableWeatherSection,
+  type WeatherSectionState,
+} from "./state.ts";
 import type {
   AstronomicalTimes,
   CurrentWeather,
+  DashboardSnapshot,
+  DataResponse,
   LamppostReading,
   LocalForecast,
   NineDayForecast,
@@ -39,77 +45,100 @@ export interface InitialWeatherState {
   stationRainfall: WeatherSectionState<StationRainfallResponse>;
 }
 
+function dashboardSection<Data>(
+  response: DataResponse<Data> | null,
+  staleAfterMs: number,
+  now: Date,
+): WeatherSectionState<Data> {
+  if (response === null) {
+    return {
+      status: "unavailable",
+      error: {
+        kind: "unavailable",
+        message: "Weather data unavailable",
+        status: 503,
+      },
+      canRetry: true,
+    };
+  }
+  return loadedWeatherSection(response, staleAfterMs, now);
+}
+
+function unavailableInitialWeather(error: unknown): InitialWeatherState {
+  return {
+    warnings: unavailableWeatherSection(error),
+    current: unavailableWeatherSection(error),
+    localForecast: unavailableWeatherSection(error),
+    nineDayForecast: unavailableWeatherSection(error),
+    regionalTemperature: unavailableWeatherSection(error),
+    regionalWind: unavailableWeatherSection(error),
+    lampposts: unavailableWeatherSection(error),
+    astronomical: unavailableWeatherSection(error),
+    stationRainfall: unavailableWeatherSection(error),
+  };
+}
+
+export function initialWeatherFromDashboard(
+  dashboard: DashboardSnapshot,
+  now: Date = new Date(),
+): InitialWeatherState {
+  return {
+    warnings: dashboardSection(
+      dashboard.warnings,
+      INITIAL_WEATHER_STALE_AFTER.warnings,
+      now,
+    ),
+    current: dashboardSection(
+      dashboard.current,
+      INITIAL_WEATHER_STALE_AFTER.current,
+      now,
+    ),
+    localForecast: dashboardSection(
+      dashboard.localForecast,
+      INITIAL_WEATHER_STALE_AFTER.localForecast,
+      now,
+    ),
+    nineDayForecast: dashboardSection(
+      dashboard.nineDayForecast,
+      INITIAL_WEATHER_STALE_AFTER.nineDayForecast,
+      now,
+    ),
+    regionalTemperature: dashboardSection(
+      dashboard.regionalTemperature,
+      INITIAL_WEATHER_STALE_AFTER.regionalTemperature,
+      now,
+    ),
+    regionalWind: dashboardSection(
+      dashboard.regionalWind,
+      INITIAL_WEATHER_STALE_AFTER.regionalWind,
+      now,
+    ),
+    lampposts: dashboardSection(
+      dashboard.lampposts,
+      INITIAL_WEATHER_STALE_AFTER.lampposts,
+      now,
+    ),
+    astronomical: dashboardSection(
+      dashboard.astronomical,
+      INITIAL_WEATHER_STALE_AFTER.astronomical,
+      now,
+    ),
+    stationRainfall: dashboardSection(
+      dashboard.stationRainfall,
+      INITIAL_WEATHER_STALE_AFTER.stationRainfall,
+      now,
+    ),
+  };
+}
+
 export async function loadInitialWeather(
   client: WeatherClient,
   now: Date = new Date(),
 ): Promise<InitialWeatherState> {
-  const [
-    warnings,
-    current,
-    localForecast,
-    nineDayForecast,
-    regionalTemperature,
-    regionalWind,
-    lampposts,
-    astronomical,
-    stationRainfall,
-  ] = await Promise.all([
-    loadWeatherSection(
-      client.getWarnings,
-      INITIAL_WEATHER_STALE_AFTER.warnings,
-      now,
-    ),
-    loadWeatherSection(
-      client.getCurrentWeather,
-      INITIAL_WEATHER_STALE_AFTER.current,
-      now,
-    ),
-    loadWeatherSection(
-      client.getLocalForecast,
-      INITIAL_WEATHER_STALE_AFTER.localForecast,
-      now,
-    ),
-    loadWeatherSection(
-      client.getNineDayForecast,
-      INITIAL_WEATHER_STALE_AFTER.nineDayForecast,
-      now,
-    ),
-    loadWeatherSection(
-      client.getRegionalTemperature,
-      INITIAL_WEATHER_STALE_AFTER.regionalTemperature,
-      now,
-    ),
-    loadWeatherSection(
-      client.getRegionalWind,
-      INITIAL_WEATHER_STALE_AFTER.regionalWind,
-      now,
-    ),
-    loadWeatherSection(
-      client.getLampposts,
-      INITIAL_WEATHER_STALE_AFTER.lampposts,
-      now,
-    ),
-    loadWeatherSection(
-      client.getAstronomicalTimes,
-      INITIAL_WEATHER_STALE_AFTER.astronomical,
-      now,
-    ),
-    loadWeatherSection(
-      client.getStationRainfall,
-      INITIAL_WEATHER_STALE_AFTER.stationRainfall,
-      now,
-    ),
-  ]);
-
-  return {
-    warnings,
-    current,
-    localForecast,
-    nineDayForecast,
-    regionalTemperature,
-    regionalWind,
-    lampposts,
-    astronomical,
-    stationRainfall,
-  };
+  try {
+    const response = await client.getDashboard();
+    return initialWeatherFromDashboard(response.data, now);
+  } catch (error) {
+    return unavailableInitialWeather(error);
+  }
 }

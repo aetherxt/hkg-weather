@@ -88,7 +88,7 @@ def test_source_time_value_error_is_reported_as_invalid_upstream_data() -> None:
     client = MagicMock()
     client.get = AsyncMock(return_value=response)
     latest = MagicMock()
-    latest.find_one = AsyncMock()
+    latest.find_one = AsyncMock(return_value=None)
     archive = MagicMock()
     archive.create_index = AsyncMock()
     database = MagicMock()
@@ -112,5 +112,5 @@ def test_source_time_value_error_is_reported_as_invalid_upstream_data() -> None:
         asyncio.run(ingest_json_dataset(database, client, spec))
 
     assert isinstance(error.value.__cause__, ValueError)
-    latest.find_one.assert_not_awaited()
+    latest.find_one.assert_awaited_once()
     archive.create_index.assert_not_awaited()

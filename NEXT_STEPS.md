@@ -13,8 +13,9 @@ catalogue and operational commands are in [README.md](./README.md).
   cron-job.org can populate MongoDB continuously.
 - MongoDB maintains replaceable latest documents and the planned rolling
   three-day archives with TTL expiry.
-- The public read API is complete: 27 typed `GET /api/weather/*` route patterns
-  cover latest data, map data and archives.
+- The public read API is complete: 28 typed `GET /api/weather/*` route patterns
+  cover an aggregate dashboard snapshot, focused latest data, map data and
+  archives.
 - Every public database read uses `MONGODB_READ_URI`; ingestion credentials are
   confined to protected cron routes.
 - Stored JSON, CSV, PNG and KML payloads are decoded or normalized by the
@@ -27,9 +28,9 @@ catalogue and operational commands are in [README.md](./README.md).
 - `backend/scripts/verify_deployment.py` provides a repeatable post-deployment
   smoke test for health, authenticated ingestion, the current-weather reader,
   a decoded nowcast grid, and radar PNG/ETag handling.
-- The Next.js application now has a typed same-origin client for the first six
-  non-map readers, a server-only initial-data loader, and shared loading,
-  unavailable, stale and retry states.
+- The Next.js application loads all non-map home-page data through one cached
+  aggregate route. Visible tabs refresh one snapshot every ten minutes, focus
+  refreshes are rate-limited, and hidden tabs do not poll.
 - Reduced captures from the normalized application API drive 11 offline
   frontend tests; `npm run verify` runs lint, type checking, tests and a
   production build.

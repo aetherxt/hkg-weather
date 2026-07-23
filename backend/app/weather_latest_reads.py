@@ -1,9 +1,13 @@
+import asyncio
+import logging
 import xml.etree.ElementTree as ElementTree
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
 from .internal_feeds import (
     EARTH_WEATHER_CYCLE_DATASET,
@@ -64,10 +68,12 @@ from .weather_read_common import (
     public_keys,
     reader_error,
     response_meta,
+    set_dashboard_cache,
     set_latest_cache,
 )
 from .weather_read_models import (
     AstronomicalTimes,
+    DashboardSnapshot,
     DataResponse,
     LamppostReading,
     ListResponse,
@@ -82,6 +88,7 @@ from .weather_read_models import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _tropical_cyclone_geo_json(payload: bytes) -> dict[str, Any]:
@@ -179,7 +186,7 @@ async def get_current_weather(
         CURRENT_WEATHER_DATASET,
         validate=CurrentWeatherPayload.model_validate,
     )
-    set_latest_cache(response)
+    set_latest_cache(response, current=True)
     return DataResponse(
         data=payload,
         meta=response_meta(CURRENT_WEATHER_DATASET, stored),
@@ -522,7 +529,7 @@ async def get_sun(
         raise reader_error(
             status.HTTP_404_NOT_FOUND,
             "Today's astronomical data not found",
-        )
+        ) from None
 
     set_latest_cache(response)
     return DataResponse(
@@ -540,6 +547,109 @@ async def get_sun(
         meta=response_meta(
             SUNRISE_SUNSET_DATASET,
             sun_stored,
+        ),
+    )
+
+
+async def _optional_dashboard_section[Section](
+    result: Awaitable[Section],
+) -> Section | None:
+    try:
+        return await result
+    except (
+        DatasetNotFoundError,
+        StoredDataError,
+        PyMongoError,
+        HTTPException,
+    ) as error:
+        logger.warning(
+            "Dashboard section unavailable: %s",
+            type(error).__name__,
+        )
+        return None
+
+
+@router.get(
+    "/dashboard",
+    response_model=DataResponse[DashboardSnapshot],
+)
+async def get_dashboard(
+    response: Response,
+    database: ReadDatabase,
+) -> DataResponse[DashboardSnapshot]:
+    section_responses = [Response() for _ in range(9)]
+    (
+        warnings,
+        current,
+        local_forecast,
+        nine_day_forecast,
+        regional_temperature,
+        regional_wind,
+        lampposts,
+        astronomical,
+        station_rainfall,
+    ) = await asyncio.gather(
+        _optional_dashboard_section(get_warnings(section_responses[0], database)),
+        _optional_dashboard_section(
+            get_current_weather(section_responses[1], database)
+        ),
+        _optional_dashboard_section(
+            get_local_forecast(section_responses[2], database)
+        ),
+        _optional_dashboard_section(
+            get_nine_day_forecast(section_responses[3], database)
+        ),
+        _optional_dashboard_section(
+            get_regional_temperature(section_responses[4], database)
+        ),
+        _optional_dashboard_section(
+            get_regional_wind(section_responses[5], database)
+        ),
+        _optional_dashboard_section(get_lampposts(section_responses[6], database)),
+        _optional_dashboard_section(get_sun(section_responses[7], database)),
+        _optional_dashboard_section(
+            get_station_rainfall(section_responses[8], database)
+        ),
+    )
+    snapshot = DashboardSnapshot(
+        warnings=warnings,
+        current=current,
+        local_forecast=local_forecast,
+        nine_day_forecast=nine_day_forecast,
+        regional_temperature=regional_temperature,
+        regional_wind=regional_wind,
+        lampposts=lampposts,
+        astronomical=astronomical,
+        station_rainfall=station_rainfall,
+    )
+    metadata = [
+        section.meta
+        for section in (
+            warnings,
+            current,
+            local_forecast,
+            nine_day_forecast,
+            regional_temperature,
+            regional_wind,
+            lampposts,
+            astronomical,
+            station_rainfall,
+        )
+        if section is not None
+    ]
+    if not metadata:
+        raise StoredDataError("dashboard")
+    source_times = [
+        item.source_updated_at for item in metadata if item.source_updated_at
+    ]
+    fetched_times = [item.fetched_at for item in metadata if item.fetched_at]
+    set_dashboard_cache(response)
+    return DataResponse(
+        data=snapshot,
+        meta=ResponseMetadata(
+            dataset="dashboard",
+            source_updated_at=max(source_times) if source_times else None,
+            fetched_at=max(fetched_times) if fetched_times else None,
         ),
     )
 

@@ -119,14 +119,53 @@ async def ingest_dataset(
             )
         )
         raw_payload = response.content
-        validated = validate(raw_payload)
     except DatasetUpstreamError:
         raise
-    except (UnicodeError, ValueError) as error:
-        raise DatasetUpstreamError(target.dataset) from error
 
     fetched_at = (now or datetime.now(UTC)).astimezone(UTC)
     content_hash = sha256(raw_payload).hexdigest()
+    latest = database["latest"]
+    try:
+        previous = await latest.find_one(
+            {"_id": target.document_id},
+            {"content_hash": 1, "source_updated_at": 1, "fetched_at": 1},
+        )
+        changed = previous is None or previous.get("content_hash") != content_hash
+        same_archive_identity = target.archive_policy is ArchivePolicy.CONTENT
+        if (
+            not changed
+            and target.archive_policy is ArchivePolicy.SLOT
+            and target.archive_interval is not None
+        ):
+            previous_fetched_at = previous.get("fetched_at")
+            same_archive_identity = (
+                isinstance(previous_fetched_at, datetime)
+                and _archive_slot(previous_fetched_at, target.archive_interval)
+                == _archive_slot(fetched_at, target.archive_interval)
+            )
+        if not changed and same_archive_identity:
+            await latest.update_one(
+                {"_id": target.document_id},
+                {"$set": {"fetched_at": fetched_at}},
+            )
+            previous_source_time = previous.get("source_updated_at")
+            return DatasetIngestionResult(
+                changed=False,
+                source_updated_at=(
+                    previous_source_time
+                    if isinstance(previous_source_time, datetime)
+                    else None
+                ),
+                fetched_at=fetched_at,
+            )
+    except PyMongoError as error:
+        raise DatasetStorageError(target.dataset) from error
+
+    try:
+        validated = validate(raw_payload)
+    except (UnicodeError, ValueError) as error:
+        raise DatasetUpstreamError(target.dataset) from error
+
     content_type = response.headers.get(
         "content-type",
         target.default_content_type,
@@ -189,12 +228,6 @@ async def ingest_dataset(
 
     try:
         await ensure_storage_indexes(database)
-        latest = database["latest"]
-        previous = await latest.find_one(
-            {"_id": target.document_id},
-            {"content_hash": 1},
-        )
-        changed = previous is None or previous.get("content_hash") != content_hash
         await latest.replace_one(
             {"_id": target.document_id},
             document,

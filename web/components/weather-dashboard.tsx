@@ -12,27 +12,22 @@ import { TemperatureDetailPanel } from "@/components/temperature-detail-panel";
 import { WarningsDetailPanel } from "@/components/warnings-detail-panel";
 import type { WeatherDetailSection } from "@/components/weather-detail-sections";
 import { WeatherWarnings } from "@/components/weather-warnings";
-import type { InitialWeatherState } from "@/lib/weather/initial";
+import {
+  INITIAL_WEATHER_STALE_AFTER,
+  type InitialWeatherState,
+} from "@/lib/weather/initial";
 import { currentWeatherViewModel } from "@/lib/weather/view-models";
 import { useSettings } from "@/lib/weather/settings";
 import { weatherClient } from "@/lib/weather/client";
-import type {
-  ReadyWeatherSection,
-  WeatherSectionState,
-} from "@/lib/weather/state";
+import type { WeatherSectionState } from "@/lib/weather/state";
+import { loadedWeatherSection } from "@/lib/weather/state";
 import {
   activeWarnings,
   warningDisplayName,
   warningSummaryHeadline,
 } from "@/lib/weather";
 import type {
-  CurrentWeather,
-  LamppostReading,
-  LocalForecast,
-  StationRainfallResponse,
-  TemperatureReading,
   Warnings,
-  WindReading,
 } from "@/lib/weather/types";
 
 function warningsDetailBody(warnings: Warnings): string {
@@ -66,6 +61,9 @@ const staticDetailSections: Array<{
     body: "Today's sunrise and sunset times.",
   },
 ];
+
+const DASHBOARD_REFRESH_INTERVAL_MS = 10 * 60_000;
+const DASHBOARD_FOCUS_REFRESH_AFTER_MS = 5 * 60_000;
 
 export function WeatherDashboard({
   initialWeather,
@@ -182,49 +180,113 @@ export function WeatherDashboard({
   }, [activeDetail, activeSection]);
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const results = await Promise.allSettled([
-        weatherClient.getCurrentWeather(),
-        weatherClient.getWarnings(),
-        weatherClient.getRegionalTemperature(),
-        weatherClient.getRegionalWind(),
-        weatherClient.getLampposts(),
-        weatherClient.getStationRainfall(),
-        weatherClient.getLocalForecast(),
-      ]);
+    let stopped = false;
+    let inFlight = false;
+    let lastRefreshAt = Date.now();
 
-      const [current, warnings, temp, wind, lamp, station, forecast] = results;
+    async function refreshDashboard(force: boolean) {
+      if (
+        stopped ||
+        inFlight ||
+        document.visibilityState !== "visible" ||
+        (!force &&
+          Date.now() - lastRefreshAt < DASHBOARD_FOCUS_REFRESH_AFTER_MS)
+      ) {
+        return;
+      }
 
-      if (current.status === "fulfilled") {
-        const { data, meta } = current.value;
-        setCurrentSection({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
+      inFlight = true;
+      try {
+        const { data } = await weatherClient.getDashboard();
+        if (stopped) return;
+        const now = new Date();
+        if (data.current) {
+          setCurrentSection(
+            loadedWeatherSection(
+              data.current,
+              INITIAL_WEATHER_STALE_AFTER.current,
+              now,
+            ),
+          );
+        }
+        if (data.warnings) {
+          setWarningsSection(
+            loadedWeatherSection(
+              data.warnings,
+              INITIAL_WEATHER_STALE_AFTER.warnings,
+              now,
+            ),
+          );
+        }
+        if (data.regionalTemperature) {
+          setRegionalTemperature(
+            loadedWeatherSection(
+              data.regionalTemperature,
+              INITIAL_WEATHER_STALE_AFTER.regionalTemperature,
+              now,
+            ),
+          );
+        }
+        if (data.regionalWind) {
+          setRegionalWind(
+            loadedWeatherSection(
+              data.regionalWind,
+              INITIAL_WEATHER_STALE_AFTER.regionalWind,
+              now,
+            ),
+          );
+        }
+        if (data.lampposts) {
+          setLampposts(
+            loadedWeatherSection(
+              data.lampposts,
+              INITIAL_WEATHER_STALE_AFTER.lampposts,
+              now,
+            ),
+          );
+        }
+        if (data.stationRainfall) {
+          setStationRainfall(
+            loadedWeatherSection(
+              data.stationRainfall,
+              INITIAL_WEATHER_STALE_AFTER.stationRainfall,
+              now,
+            ),
+          );
+        }
+        if (data.localForecast) {
+          setLocalForecast(
+            loadedWeatherSection(
+              data.localForecast,
+              INITIAL_WEATHER_STALE_AFTER.localForecast,
+              now,
+            ),
+          );
+        }
+        lastRefreshAt = Date.now();
+      } catch {
+        // Keep displaying the last successful snapshot until the next refresh.
+      } finally {
+        inFlight = false;
       }
-      if (warnings.status === "fulfilled") {
-        const { data, meta } = warnings.value;
-        setWarningsSection({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-      if (temp.status === "fulfilled") {
-        const { data, meta } = temp.value;
-        setRegionalTemperature({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-      if (wind.status === "fulfilled") {
-        const { data, meta } = wind.value;
-        setRegionalWind({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-      if (lamp.status === "fulfilled") {
-        const { data, meta } = lamp.value;
-        setLampposts({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-      if (station.status === "fulfilled") {
-        const { data, meta } = station.value;
-        setStationRainfall({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-      if (forecast.status === "fulfilled") {
-        const { data, meta } = forecast.value;
-        setLocalForecast({ status: "ready", data, meta, sourceUpdatedAt: meta.sourceUpdatedAt, fetchedAt: meta.fetchedAt });
-      }
-    }, 120_000);
-    return () => clearInterval(interval);
+    }
+
+    function refreshIfDue() {
+      void refreshDashboard(false);
+    }
+
+    const interval = window.setInterval(
+      () => void refreshDashboard(true),
+      DASHBOARD_REFRESH_INTERVAL_MS,
+    );
+    window.addEventListener("focus", refreshIfDue);
+    document.addEventListener("visibilitychange", refreshIfDue);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfDue);
+      document.removeEventListener("visibilitychange", refreshIfDue);
+    };
   }, []);
 
   const vm = currentSection

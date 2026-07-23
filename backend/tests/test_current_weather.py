@@ -35,6 +35,7 @@ def database_mock(
 ) -> tuple[MagicMock, MagicMock, MagicMock]:
     latest = MagicMock()
     latest.find_one = AsyncMock(return_value=previous)
+    latest.update_one = AsyncMock()
     latest.replace_one = AsyncMock()
 
     archive = MagicMock()
@@ -85,7 +86,7 @@ def test_changed_current_weather_is_stored_as_latest_and_archive() -> None:
     assert archive_update["expires_at"] == fetched_at + ARCHIVE_RETENTION
 
 
-def test_unchanged_current_weather_refreshes_latest_without_duplicate_archive() -> None:
+def test_unchanged_current_weather_only_refreshes_latest_timestamp() -> None:
     payload = {"updateTime": "2026-07-17T12:02:00+08:00"}
     response = weather_response(payload)
     content_hash = sha256(response.content).hexdigest()
@@ -98,9 +99,10 @@ def test_unchanged_current_weather_refreshes_latest_without_duplicate_archive() 
     result = asyncio.run(ingest_current_weather(database, client))
 
     assert result.changed is False
-    latest.replace_one.assert_awaited_once()
-    archive.update_one.assert_awaited_once()
-    assert archive.update_one.await_args.kwargs == {"upsert": True}
+    latest.update_one.assert_awaited_once()
+    latest.replace_one.assert_not_awaited()
+    archive.create_index.assert_not_awaited()
+    archive.update_one.assert_not_awaited()
 
 
 def test_invalid_upstream_response_does_not_touch_database() -> None:
@@ -113,7 +115,8 @@ def test_invalid_upstream_response_does_not_touch_database() -> None:
 
     assert type(error.value.__cause__).__name__ == "ValidationError"
 
-    latest.find_one.assert_not_awaited()
+    latest.find_one.assert_awaited_once()
+    latest.replace_one.assert_not_awaited()
     archive.create_index.assert_not_awaited()
 
 

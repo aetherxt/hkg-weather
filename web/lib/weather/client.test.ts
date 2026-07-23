@@ -30,6 +30,38 @@ test("the same-origin client decodes a typed data response", async () => {
   assert.equal(response.meta.dataset, "current_weather");
 });
 
+test("the dashboard client uses one aggregate endpoint", async () => {
+  let requestedUrl = "";
+  const client = createWeatherClient({
+    fetch: async (input) => {
+      requestedUrl = input.toString();
+      return Response.json({
+        data: {
+          warnings: null,
+          current: readWeatherFixture("current"),
+          localForecast: null,
+          nineDayForecast: null,
+          regionalTemperature: null,
+          regionalWind: null,
+          lampposts: null,
+          astronomical: null,
+          stationRainfall: null,
+        },
+        meta: {
+          dataset: "dashboard",
+          sourceUpdatedAt: "2026-07-18T10:00:00Z",
+          fetchedAt: "2026-07-18T10:01:00Z",
+        },
+      });
+    },
+  });
+
+  const response = await client.getDashboard();
+
+  assert.equal(requestedUrl, "/api/weather/dashboard");
+  assert.equal(response.data.current?.data.icon[0], 62);
+});
+
 test("the server client resolves weather paths against its application origin", async () => {
   let requestedUrl = "";
   const fetch: WeatherFetch = async (input) => {

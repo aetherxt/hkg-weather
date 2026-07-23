@@ -102,6 +102,7 @@ to camelCase, and tropical-cyclone KML is returned as GeoJSON.
 
 | Route | Response |
 |---|---|
+| `GET /api/weather/dashboard` | One partial-tolerant snapshot containing all non-map home-page sections |
 | `GET /api/weather/current` | Current weather report |
 | `GET /api/weather/forecast/local` | Local weather forecast |
 | `GET /api/weather/forecast/nine-day` | Official nine-day forecast |
@@ -185,6 +186,12 @@ such as `earth_weather_model_cycle:ec`, and rainfall rasters use IDs such as
 `earth_weather_rainfall:ec`. A tropical-cyclone request is successful with an
 empty `datasets` array and `activeCyclones: 0` when HKO reports no active
 cyclone.
+
+Before validating and replacing an unchanged payload, the shared ingestion
+pipeline compares its exact byte hash with the latest stored document.
+Content-addressed feeds and repeat calls within the same slot then update only
+`fetched_at`; the first call in a new slot still creates the required
+slot-addressed archive record.
 
 After deployment, run all sources once with:
 
