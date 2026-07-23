@@ -105,27 +105,35 @@ export function TyphoonTrackPage() {
   return (
     <main className="weather-page typhoon-page">
       <div className="typhoon-page-content">
-        <header className="typhoon-page-header">
-          <p className="typhoon-page-kicker">Active tropical cyclone</p>
-          <h1>
-            Typhoon Track{cyclone ? ` (${cyclone.stormId})` : ""}
-          </h1>
-          {cyclone ? (
-            <p className="typhoon-page-name">
-              {cyclone.nameEn}
-              {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
+        <div className="typhoon-page-sidebar">
+          <header className="typhoon-page-header">
+            <p className="typhoon-page-kicker">Active tropical cyclone</p>
+            <h1>
+              Typhoon Track{cyclone ? ` (${cyclone.stormId})` : ""}
+            </h1>
+            {cyclone ? (
+              <p className="typhoon-page-name">
+                {cyclone.nameEn}
+                {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
+              </p>
+            ) : null}
+          </header>
+
+          {status === "loading" ? (
+            <p className="typhoon-page-state">Loading typhoon track…</p>
+          ) : status === "empty" ? (
+            <p className="typhoon-page-state">
+              No active typhoon track is available.
+            </p>
+          ) : status === "error" ? (
+            <p className="typhoon-page-state">
+              The typhoon track is temporarily unavailable.
             </p>
           ) : null}
-        </header>
+        </div>
 
-        {status === "loading" ? (
-          <p className="typhoon-page-state">Loading typhoon track…</p>
-        ) : status === "empty" ? (
-          <p className="typhoon-page-state">No active typhoon track is available.</p>
-        ) : status === "error" ? (
-          <p className="typhoon-page-state">The typhoon track is temporarily unavailable.</p>
-        ) : selectedFrame ? (
-          <>
+        {status === "ready" && selectedFrame ? (
+          <div className="typhoon-page-map">
             <TyphoonTrackMap
               geoJson={selectedFrame.geoJson}
               potentialTrackAreaGeoJson={
@@ -133,8 +141,10 @@ export function TyphoonTrackPage() {
               }
               key={selectedFrame.fetchedAt}
             />
-
-            <section className="typhoon-timeline" aria-label="Archived track timeline">
+            <section
+              className="typhoon-timeline"
+              aria-label="Archived track timeline"
+            >
               <p className="typhoon-timeline-caption">
                 Forecast snapshot {selectedIndex + 1} of {frames.length}
                 <span aria-hidden="true"> · </span>
@@ -180,7 +190,7 @@ export function TyphoonTrackPage() {
                 </button>
               </div>
             </section>
-          </>
+          </div>
         ) : null}
       </div>
     </main>
