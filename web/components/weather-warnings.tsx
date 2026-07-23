@@ -139,7 +139,7 @@ export function WeatherWarnings({
               const actionTime =
                 warning.actionCode === "ISSUE"
                   ? warning.issueTime
-                  : warning.actionCode === "UPDATE"
+                  : warning.actionCode === "UPDATE" || warning.actionCode === "REISSUE"
                     ? warning.updateTime
                     : undefined;
               const showDates = Boolean(
@@ -166,6 +166,12 @@ export function WeatherWarnings({
                       <>
                         <span aria-hidden="true">·</span>
                         Updated {formatWarningTime(warning.updateTime, showDates)}
+                      </>
+                    ) : null}
+                    {warning.actionCode === "REISSUE" ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        Re-issued {formatWarningTime(warning.updateTime, showDates)}
                       </>
                     ) : null}
                     {warning.expireTime ? (

@@ -218,7 +218,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Data | Stored representation | Capture policy | Retention |
 |---|---|---|---|
 | Past-hour station rainfall | Raw JSON | Save each new observation time; also maintain latest | 3 days |
-| Gridded two-hour rainfall nowcast | Raw complete CSV for latest; uncompressed BSON binary containing the first two 30-minute grids plus their valid-time metadata for archive | Refresh latest when HKO updates; archive every 30 minutes | Latest plus 3-day archive |
+| Gridded two-hour rainfall nowcast | Raw complete CSV and upstream ETag for latest; uncompressed BSON binary containing the first two 30-minute grids plus their valid-time metadata for archive | Check the ETag with a one-byte conditional request; fetch changed files in four version-locked parallel ranges within a 50-second network budget; archive every 30 minutes | Latest plus 3-day archive |
 | Current weather report | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Local weather forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |
 | Official nine-day forecast | Raw JSON | Save when update time or content changes; also maintain latest | 3 days |

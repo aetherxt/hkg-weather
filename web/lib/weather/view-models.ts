@@ -3,6 +3,7 @@ import type { CurrentWeather } from "./types";
 
 export interface CurrentWeatherViewModel {
   temperature: number | null;
+  temperatureDistrict: string | null;
   condition: string | null;
   humidity: number | null;
   rainfall: number | null;
@@ -11,6 +12,16 @@ export interface CurrentWeatherViewModel {
 }
 
 const HKO_STATION = "Hong Kong Observatory";
+
+const temperatureDisplayNames: Record<string, string> = {
+  "Hong Kong Observatory": "HK Observatory",
+  "Tsuen Wan Shing Mun Valley": "Shing Mun Valley",
+  "Kai Tak Runway Park": "Kai Tak",
+};
+
+export function temperatureDisplayName(name: string): string {
+  return temperatureDisplayNames[name] ?? name;
+}
 
 export function currentWeatherViewModel(
   data: CurrentWeather,
@@ -35,8 +46,11 @@ export function currentWeatherViewModel(
   const firstRainfall = data.rainfall?.data[0];
   const uv = data.uvindex?.data[0];
 
+  const resolvedDistrict = temp?.place ?? hkoTemp?.place ?? data.temperature?.data[0]?.place ?? null;
+
   return {
     temperature: temp?.value ?? hkoTemp?.value ?? data.temperature?.data[0]?.value ?? null,
+    temperatureDistrict: resolvedDistrict ? temperatureDisplayName(resolvedDistrict) : null,
     condition: primaryIconDescription(data.icon) ?? null,
     humidity: hkoHumidity?.value ?? data.humidity?.data[0]?.value ?? null,
     rainfall: rain?.max ?? mainRainfall?.max ?? firstRainfall?.max ?? null,

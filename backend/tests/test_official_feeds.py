@@ -1,9 +1,13 @@
+import asyncio
 import json
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
 
+from app import official_feeds
+from app.ingestion import DatasetIngestionResult
 from app.official_feeds import (
     GRIDDED_RAINFALL_SPEC,
     LOCAL_FORECAST_SPEC,
@@ -12,6 +16,7 @@ from app.official_feeds import (
     WIND_CSV_HEADER,
     SmartLamppostObservation,
     astronomical_times_specs,
+    ingest_gridded_rainfall,
     load_smart_lamppost_devices,
     smart_lamppost_spec,
     validate_astronomical_times_csv,
@@ -19,7 +24,10 @@ from app.official_feeds import (
     validate_temperature_csv,
     validate_wind_csv,
 )
-from app.rainfall_nowcast import GRIDDED_RAINFALL_HEADER
+from app.rainfall_nowcast import (
+    GRIDDED_RAINFALL_HEADER,
+    GriddedRainfallDownload,
+)
 from app.storage import ArchivePolicy
 
 GRIDDED_RAINFALL_HEADER_TEXT = ",".join(GRIDDED_RAINFALL_HEADER) + "\n"
@@ -142,6 +150,89 @@ def test_gridded_rainfall_archive_keeps_first_two_forecast_periods() -> None:
     ]
     assert GRIDDED_RAINFALL_SPEC.archive_interval is not None
     assert GRIDDED_RAINFALL_SPEC.archive_policy is ArchivePolicy.SLOT
+
+
+def test_unchanged_gridded_rainfall_only_refreshes_fetch_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_updated_at = datetime(2026, 7, 23, 5, 30, tzinfo=UTC)
+    fetched_at = datetime(2026, 7, 23, 5, 36, tzinfo=UTC)
+    latest = MagicMock()
+    latest.find_one = AsyncMock(
+        return_value={
+            "upstream_etag": '"same"',
+            "source_updated_at": source_updated_at,
+        }
+    )
+    latest.update_one = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+    fetch_download = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        official_feeds,
+        "fetch_gridded_rainfall_csv",
+        fetch_download,
+    )
+
+    result = asyncio.run(
+        ingest_gridded_rainfall(database, MagicMock(), now=fetched_at)
+    )
+
+    assert result == DatasetIngestionResult(
+        changed=False,
+        source_updated_at=source_updated_at,
+        fetched_at=fetched_at,
+    )
+    assert fetch_download.await_args.kwargs["known_etag"] == '"same"'
+    latest.update_one.assert_awaited_once_with(
+        {"_id": GRIDDED_RAINFALL_SPEC.document_id},
+        {"$set": {"fetched_at": fetched_at}},
+    )
+
+
+def test_changed_gridded_rainfall_stores_etag_with_prefetched_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = GRIDDED_RAINFALL_HEADER_BYTES + (
+        b"202607231330,202607231400,22.1,114.1,1.0\n"
+        b"202607231330,202607231430,22.1,114.1,2.0\n"
+    )
+    fetched_at = datetime(2026, 7, 23, 5, 36, tzinfo=UTC)
+    latest = MagicMock()
+    latest.find_one = AsyncMock(return_value=None)
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+    fetch_download = AsyncMock(
+        return_value=GriddedRainfallDownload(
+            payload=raw,
+            etag='"changed"',
+            content_type="text/csv",
+        )
+    )
+    stored_result = DatasetIngestionResult(
+        changed=True,
+        source_updated_at=datetime(2026, 7, 23, 5, 30, tzinfo=UTC),
+        fetched_at=fetched_at,
+    )
+    ingest_raw = AsyncMock(return_value=stored_result)
+    monkeypatch.setattr(
+        official_feeds,
+        "fetch_gridded_rainfall_csv",
+        fetch_download,
+    )
+    monkeypatch.setattr(official_feeds, "ingest_raw_dataset", ingest_raw)
+
+    result = asyncio.run(
+        ingest_gridded_rainfall(database, MagicMock(), now=fetched_at)
+    )
+
+    assert result is stored_result
+    spec = ingest_raw.await_args.args[2]
+    response = ingest_raw.await_args.kwargs["prefetched_response"]
+    assert response.content == raw
+    assert response.headers["etag"] == '"changed"'
+    assert spec.validate(raw).metadata["upstream_etag"] == '"changed"'
+    assert ingest_raw.await_args.kwargs["now"] == fetched_at
 
 
 @pytest.mark.parametrize(

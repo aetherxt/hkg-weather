@@ -41,6 +41,7 @@ function formatUpdatedAt(iso: string) {
 
 interface CurrentWeatherReportProps extends WeatherDetailInteractionProps {
   temperature: number | null;
+  temperatureDistrict: string | null;
   condition: string | null;
   humidity: number | null;
   rainfall: number | null;
@@ -110,6 +111,7 @@ function getUvTone(uvIndex: number) {
 
 export function CurrentWeatherReport({
   temperature,
+  temperatureDistrict,
   condition,
   humidity,
   rainfall,
@@ -155,9 +157,10 @@ export function CurrentWeatherReport({
             <span className="weather-row-chevron" aria-hidden="true" />
           </div>
         </div>
-        {updatedAt && (
-          <p className="current-weather-updated-at">
-            Last Updated At: {formatUpdatedAt(updatedAt)}
+        {(updatedAt || temperatureDistrict) && (
+          <p className="current-weather-updated-at" suppressHydrationWarning>
+            {updatedAt && <>Last Updated At: {formatUpdatedAt(updatedAt)}</>}
+            {temperatureDistrict && <span className="current-weather-district" suppressHydrationWarning>District: {temperatureDistrict}</span>}
           </p>
         )}
       </div>

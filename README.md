@@ -167,7 +167,7 @@ slot-addressed deduplication, depending on the dataset.
 | `/api/cron/nine-day-forecast` | Nine-day forecast, latest plus 3-day archive |
 | `/api/cron/warnings` | Warning summary, warning information and special tips, latest only |
 | `/api/cron/station-rainfall` | Past-hour station rainfall, latest plus 3-day archive |
-| `/api/cron/rainfall-nowcast` | Complete latest CSV and first two forecast periods in one archive slot per 30 minutes |
+| `/api/cron/rainfall-nowcast` | Complete latest CSV and first two forecast periods in one archive slot per 30 minutes; unchanged HKO ETags skip the body download, while changed files use four verified parallel byte ranges |
 | `/api/cron/regional-weather` | Regional temperature and wind/gust CSVs, latest plus 3-day archive |
 | `/api/cron/astronomical-times` | Complete current-year sunrise/sunset and moonrise/moonset CSVs, latest only |
 | `/api/cron/smart-lampposts` | One latest and archived document per configured device |

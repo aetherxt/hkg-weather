@@ -24,6 +24,7 @@ from .ingestion import (
     DatasetStorageError,
     DatasetUpstreamError,
     ValidatedPayload,
+    fetch_with_retry,
 )
 from .json_ingestion import JsonDatasetSpec, ingest_json_dataset
 from .official_feeds import (
@@ -362,11 +363,45 @@ def parse_tropical_cyclone_index(
         return []
 
     array = re.search(r"\btc\s*=\s*\[(.*?)]\s*;?", text, re.DOTALL)
-    if array is None:
+    indexed_entries = re.findall(
+        r"\btc\s*\[\s*(\d+)\s*]\s*=\s*(['\"])(.*?)\2\s*;?",
+        text,
+        re.DOTALL,
+    )
+    if array is None and not indexed_entries:
         raise ValueError("tropical-cyclone index has an unexpected format")
-    entries = re.findall(r"(['\"])(.*?)\1", array.group(1), re.DOTALL)
+
+    entries = (
+        []
+        if array is None
+        else [
+            entry
+            for _, entry in re.findall(
+                r"(['\"])(.*?)\1",
+                array.group(1),
+                re.DOTALL,
+            )
+        ]
+    )
+    if indexed_entries:
+        indexes = [int(index) for index, _, _ in indexed_entries]
+        if len(indexes) != len(set(indexes)):
+            raise ValueError("tropical-cyclone index contains duplicate entries")
+        entries.extend(
+            entry
+            for _, _, entry in sorted(
+                indexed_entries,
+                key=lambda indexed_entry: int(indexed_entry[0]),
+            )
+        )
+
+    if not entries:
+        if array is not None and not array.group(1).strip() and "tc[" not in text:
+            return []
+        raise ValueError("tropical-cyclone index contains no valid entries")
+
     cyclones = []
-    for _, entry in entries:
+    for entry in entries:
         fields = [field.strip() for field in entry.split(",", maxsplit=2)]
         if len(fields) != 3 or not re.fullmatch(r"[A-Za-z0-9_-]+", fields[0]):
             raise ValueError("tropical-cyclone index entry is invalid")
@@ -377,8 +412,6 @@ def parse_tropical_cyclone_index(
                 chinese_name=fields[2],
             )
         )
-    if not cyclones:
-        raise ValueError("tropical-cyclone index contains no valid entries")
     return cyclones
 
 
@@ -562,9 +595,14 @@ async def ingest_tropical_cyclone_tracks(
     client: httpx.AsyncClient,
 ) -> list[DatasetIngestionStatus]:
     try:
-        response = await client.get(TROPICAL_CYCLONE_INDEX_URL)
-        response.raise_for_status()
+        response = await fetch_with_retry(
+            client,
+            TROPICAL_CYCLONE_INDEX_URL,
+            TROPICAL_CYCLONE_TRACK_DATASET,
+        )
         cyclones = parse_tropical_cyclone_index(response.content)
+    except DatasetUpstreamError:
+        raise
     except (httpx.HTTPError, UnicodeError, ValueError) as error:
         raise DatasetUpstreamError(TROPICAL_CYCLONE_TRACK_DATASET) from error
 

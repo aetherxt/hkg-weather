@@ -7,6 +7,7 @@ import {
   EnvironmentalConditions,
 } from "@/components/current-weather-report";
 import { RainfallDetailPanel } from "@/components/rainfall-detail-panel";
+import { SunPathPanel } from "@/components/sun-path-panel";
 import { TemperatureDetailPanel } from "@/components/temperature-detail-panel";
 import { WarningsDetailPanel } from "@/components/warnings-detail-panel";
 import type { WeatherDetailSection } from "@/components/weather-detail-sections";
@@ -68,8 +69,10 @@ const staticDetailSections: Array<{
 
 export function WeatherDashboard({
   initialWeather,
+  initialNow,
 }: {
   initialWeather: InitialWeatherState;
+  initialNow: string;
 }) {
   const [activeSection, setActiveSection] =
     useState<WeatherDetailSection | null>(null);
@@ -248,6 +251,7 @@ export function WeatherDashboard({
       <div className="weather-left-column">
         <CurrentWeatherReport
           temperature={vm?.temperature ?? null}
+          temperatureDistrict={vm?.temperatureDistrict ?? null}
           condition={vm?.condition ?? null}
           humidity={vm?.humidity ?? null}
           rainfall={vm?.rainfall ?? null}
@@ -323,6 +327,11 @@ export function WeatherDashboard({
                 />
               ) : activeDetail.id === "warnings" && warningsData ? (
                 <WarningsDetailPanel warnings={warningsData} />
+              ) : activeDetail.id === "uv" ? (
+                <SunPathPanel
+                  astronomical={astronomical}
+                  initialNow={initialNow}
+                />
               ) : (
                 <>
                   <p className="weather-mini-panel-kicker">

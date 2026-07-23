@@ -2,7 +2,8 @@ import csv
 import io
 import math
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -19,10 +20,18 @@ from pydantic import (
     field_validator,
 )
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
-from .ingestion import DatasetIngestionResult, ValidatedPayload
+from .ingestion import (
+    DatasetIngestionResult,
+    DatasetStorageError,
+    ValidatedPayload,
+)
 from .json_ingestion import JsonDatasetSpec, ingest_json_dataset
-from .rainfall_nowcast import validate_gridded_rainfall_csv
+from .rainfall_nowcast import (
+    fetch_gridded_rainfall_csv,
+    validate_gridded_rainfall_csv,
+)
 from .raw_ingestion import (
     RawDatasetSpec,
     ingest_raw_dataset,
@@ -607,8 +616,79 @@ async def ingest_station_rainfall(
 async def ingest_gridded_rainfall(
     database: AsyncDatabase,
     client: httpx.AsyncClient,
+    *,
+    now: datetime | None = None,
 ) -> DatasetIngestionResult:
-    return await ingest_raw_dataset(database, client, GRIDDED_RAINFALL_SPEC)
+    fetched_at = (now or datetime.now(UTC)).astimezone(UTC)
+    latest = database["latest"]
+    try:
+        existing = await latest.find_one(
+            {"_id": GRIDDED_RAINFALL_SPEC.document_id},
+            {"upstream_etag": 1, "source_updated_at": 1},
+        )
+    except PyMongoError as error:
+        raise DatasetStorageError(GRIDDED_RAINFALL_NOWCAST_DATASET) from error
+
+    known_etag = (
+        existing.get("upstream_etag")
+        if isinstance(existing, dict)
+        and isinstance(existing.get("upstream_etag"), str)
+        else None
+    )
+    download = await fetch_gridded_rainfall_csv(
+        client,
+        GRIDDED_RAINFALL_SPEC.url,
+        GRIDDED_RAINFALL_NOWCAST_DATASET,
+        known_etag=known_etag,
+    )
+    if download is None:
+        if existing is None:
+            raise DatasetStorageError(GRIDDED_RAINFALL_NOWCAST_DATASET)
+        try:
+            await latest.update_one(
+                {"_id": GRIDDED_RAINFALL_SPEC.document_id},
+                {"$set": {"fetched_at": fetched_at}},
+            )
+        except PyMongoError as error:
+            raise DatasetStorageError(GRIDDED_RAINFALL_NOWCAST_DATASET) from error
+        source_updated_at = existing.get("source_updated_at")
+        return DatasetIngestionResult(
+            changed=False,
+            source_updated_at=(
+                source_updated_at
+                if isinstance(source_updated_at, datetime)
+                else None
+            ),
+            fetched_at=fetched_at,
+        )
+
+    def validate_download(raw_payload: bytes) -> ValidatedPayload:
+        validated = validate_gridded_rainfall_csv(raw_payload)
+        return replace(
+            validated,
+            metadata={
+                **validated.metadata,
+                "upstream_etag": download.etag,
+            },
+        )
+
+    spec = replace(GRIDDED_RAINFALL_SPEC, validate=validate_download)
+    response = httpx.Response(
+        status_code=httpx.codes.OK,
+        content=download.payload,
+        headers={
+            "Content-Type": download.content_type,
+            "ETag": download.etag,
+        },
+        request=httpx.Request("GET", GRIDDED_RAINFALL_SPEC.url),
+    )
+    return await ingest_raw_dataset(
+        database,
+        client,
+        spec,
+        now=fetched_at,
+        prefetched_response=response,
+    )
 
 
 async def ingest_regional_weather(

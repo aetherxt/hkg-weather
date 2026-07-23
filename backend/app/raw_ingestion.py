@@ -46,6 +46,7 @@ async def ingest_raw_dataset(
     spec: RawDatasetSpec,
     *,
     now: datetime | None = None,
+    prefetched_response: httpx.Response | None = None,
 ) -> RawIngestionResult:
     return await ingest_dataset(
         database,
@@ -61,4 +62,5 @@ async def ingest_raw_dataset(
         ),
         spec.validate,
         now=now,
+        prefetched_response=prefetched_response,
     )

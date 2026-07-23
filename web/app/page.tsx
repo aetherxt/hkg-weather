@@ -3,5 +3,10 @@ import { loadInitialWeatherForPage } from "@/lib/weather/server";
 
 export default async function Home() {
   const initialWeather = await loadInitialWeatherForPage();
-  return <WeatherDashboard initialWeather={initialWeather} />;
+  return (
+    <WeatherDashboard
+      initialWeather={initialWeather}
+      initialNow={new Date().toISOString()}
+    />
+  );
 }

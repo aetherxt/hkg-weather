@@ -244,6 +244,7 @@ def test_radar_index_selects_latest_frame_and_bounds() -> None:
 
 def test_tropical_cyclone_index_handles_inactive_and_active_states() -> None:
     assert parse_tropical_cyclone_index(b"NIL\n") == []
+    assert parse_tropical_cyclone_index(b"var tc=[];\n") == []
 
     cyclones = parse_tropical_cyclone_index(
         'var tc = ["2601,ALPHA,\u963f\u723e\u6cd5"];'.encode()
@@ -252,6 +253,24 @@ def test_tropical_cyclone_index_handles_inactive_and_active_states() -> None:
     assert len(cyclones) == 1
     assert cyclones[0].storm_id == "2601"
     assert cyclones[0].english_name == "ALPHA"
+
+
+def test_tropical_cyclone_index_handles_indexed_assignments() -> None:
+    cyclones = parse_tropical_cyclone_index(
+        (
+            'var tc=[];\n'
+            'tc[1]="2618,BETA,\u8c9d\u5854";\n'
+            'tc[0]="2617,Tropical Depression,\u71b1\u5e36\u4f4e\u6c23\u58d3";\n'
+        ).encode()
+    )
+
+    assert [
+        (cyclone.storm_id, cyclone.english_name, cyclone.chinese_name)
+        for cyclone in cyclones
+    ] == [
+        ("2617", "Tropical Depression", "\u71b1\u5e36\u4f4e\u6c23\u58d3"),
+        ("2618", "BETA", "\u8c9d\u5854"),
+    ]
 
 
 def test_inactive_tropical_cyclone_removes_stale_latest_tracks() -> None:
@@ -278,3 +297,33 @@ def test_inactive_tropical_cyclone_removes_stale_latest_tracks() -> None:
             "_id": {"$nin": []},
         }
     )
+
+
+def test_tropical_cyclone_index_fetch_retries_server_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_response = httpx.Response(
+        502,
+        request=httpx.Request("GET", "https://example.test/tc-list.js"),
+    )
+    successful_response = httpx.Response(
+        200,
+        content=b"NIL",
+        request=httpx.Request("GET", "https://example.test/tc-list.js"),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[failed_response, successful_response])
+    latest = MagicMock()
+    latest.delete_many = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+    sleep = AsyncMock()
+    monkeypatch.setattr("app.ingestion.asyncio.sleep", sleep)
+
+    results = asyncio.run(
+        internal_feeds.ingest_tropical_cyclone_tracks(database, client)
+    )
+
+    assert results == []
+    assert client.get.await_count == 2
+    sleep.assert_awaited_once_with(1.0)

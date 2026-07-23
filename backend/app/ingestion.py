@@ -66,18 +66,26 @@ def _archive_slot(fetched_at: datetime, interval: timedelta) -> datetime:
     )
 
 
-async def _fetch_with_retry(
+async def fetch_with_retry(
     client: httpx.AsyncClient,
     url: str,
     dataset: str,
     max_retries: int = 2,
     base_delay: float = 1.0,
+    *,
+    headers: dict[str, str] | None = None,
+    accepted_statuses: frozenset[int] = frozenset(),
 ) -> httpx.Response:
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
-            response = await client.get(url)
-            response.raise_for_status()
+            response = (
+                await client.get(url)
+                if headers is None
+                else await client.get(url, headers=headers)
+            )
+            if response.status_code not in accepted_statuses:
+                response.raise_for_status()
             return response
         except httpx.HTTPStatusError as error:
             if error.response.status_code >= 500:
@@ -98,9 +106,18 @@ async def ingest_dataset(
     validate: Callable[[bytes], ValidatedPayload],
     *,
     now: datetime | None = None,
+    prefetched_response: httpx.Response | None = None,
 ) -> DatasetIngestionResult:
     try:
-        response = await _fetch_with_retry(client, target.url, target.dataset)
+        response = (
+            prefetched_response
+            if prefetched_response is not None
+            else await fetch_with_retry(
+                client,
+                target.url,
+                target.dataset,
+            )
+        )
         raw_payload = response.content
         validated = validate(raw_payload)
     except DatasetUpstreamError:

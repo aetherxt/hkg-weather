@@ -1,27 +1,18 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import {
+  parseSettingsCookie,
+  SETTINGS_COOKIE_NAME,
+  type UserSettings,
+} from "@/lib/weather/settings-values";
 
-const COOKIE_NAME = "hkw-settings";
-
-export type ThemeMode = "system" | "light" | "dark";
-
-export interface UserSettings {
-  temperatureDistrict: string;
-  rainfallDistrict: string;
-  themeMode: ThemeMode;
-}
-
-const DEFAULT_SETTINGS: UserSettings = {
-  temperatureDistrict: "__default__",
-  rainfallDistrict: "__default__",
-  themeMode: "system",
-};
+export type { ThemeMode, UserSettings } from "@/lib/weather/settings-values";
 
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(`(?:^|; )${name}=([^;]*)`);
-  return match ? decodeURIComponent(match[1]) : null;
+  return match?.[1] ?? null;
 }
 
 function setCookie(name: string, value: string) {
@@ -29,18 +20,11 @@ function setCookie(name: string, value: string) {
 }
 
 function loadSettings(): UserSettings {
-  try {
-    const raw = getCookie(COOKIE_NAME);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return { ...DEFAULT_SETTINGS, ...parsed };
-    }
-  } catch {}
-  return DEFAULT_SETTINGS;
+  return parseSettingsCookie(getCookie(SETTINGS_COOKIE_NAME));
 }
 
 function saveSettings(settings: UserSettings) {
-  setCookie(COOKIE_NAME, JSON.stringify(settings));
+  setCookie(SETTINGS_COOKIE_NAME, JSON.stringify(settings));
 }
 
 interface SettingsContextValue {
@@ -54,8 +38,16 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<UserSettings>(loadSettings);
+export function SettingsProvider({
+  children,
+  initialSettings,
+}: {
+  children: ReactNode;
+  initialSettings?: UserSettings;
+}) {
+  const [settings, setSettings] = useState<UserSettings>(() =>
+    initialSettings ?? loadSettings(),
+  );
   const [availableTemperatureStations, setAvailableTemperatureStations] = useState<string[]>([]);
   const [availableRainfallDistricts, setAvailableRainfallDistricts] = useState<string[]>([]);
 

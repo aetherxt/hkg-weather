@@ -18,6 +18,8 @@
     "lib/weather/client.test.ts",
     "lib/weather/initial.ts",
     "lib/weather/initial.test.ts",
+    "lib/weather/settings-values.ts",
+    "lib/weather/settings-values.test.ts",
     "lib/weather/state.ts",
     "lib/weather/test-helpers.ts",
     "lib/weather/test.ts",
