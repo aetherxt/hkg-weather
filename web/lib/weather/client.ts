@@ -1,4 +1,5 @@
 import type {
+  ArchivedTropicalCyclone,
   AstronomicalTimes,
   CurrentWeather,
   DashboardSnapshot,
@@ -7,9 +8,11 @@ import type {
   ListResponse,
   LocalForecast,
   NineDayForecast,
+  RadarMetadata,
   ResponseMetadata,
   StationRainfallResponse,
   TemperatureReading,
+  TropicalCyclone,
   Warnings,
   WeatherErrorDetail,
   WindReading,
@@ -266,6 +269,21 @@ export function createWeatherClient(options: WeatherClientOptions = {}) {
       data<AstronomicalTimes>("/sun", init),
     getStationRainfall: (init?: RequestInit) =>
       data<StationRainfallResponse>("/rainfall/stations", init),
+    getRadar: (init?: RequestInit) =>
+      data<RadarMetadata>("/radar", init),
+    getTropicalCyclones: (init?: RequestInit) =>
+      list<TropicalCyclone>("/tropical-cyclones", init),
+    getTropicalCycloneHistory: (
+      stormId: string,
+      from: string,
+      to: string,
+      init?: RequestInit,
+    ) =>
+      list<ArchivedTropicalCyclone>(
+        `/history/tropical-cyclones/${encodeURIComponent(stormId)}` +
+          `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        init,
+      ),
   };
 }
 

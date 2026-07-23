@@ -81,6 +81,32 @@ export interface StationRainfallResponse {
   hourlyRainfall: StationRainfallReading[];
 }
 
+export interface GeographicBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+}
+
+export interface RadarMetadata {
+  observedAt: IsoDateTime;
+  bounds: GeographicBounds;
+  width: number;
+  height: number;
+  imageUrl: string;
+}
+
+export interface TropicalCyclone {
+  stormId: string;
+  nameEn: string;
+  nameZh: string;
+  fetchedAt: IsoDateTime;
+  geoJson: Record<string, unknown>;
+  potentialTrackAreaGeoJson: Record<string, unknown> | null;
+}
+
+export type ArchivedTropicalCyclone = TropicalCyclone;
+
 export interface UvIndexReading {
   place: string;
   value: number;

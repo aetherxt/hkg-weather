@@ -30,6 +30,7 @@ from .ingestion import (
 from .internal_feeds import (
     EARTH_WEATHER_MODELS,
     EARTH_WEATHER_RAINFALL_MODELS,
+    TROPICAL_CYCLONE_TRACK_DATASET,
     EarthWeatherCycleIngestionResponse,
     EarthWeatherRainfallIngestionResponse,
     OcfStationIngestionResponse,
@@ -571,7 +572,10 @@ async def cron_tropical_cyclones(
     results = await ingest_tropical_cyclone_tracks(database, client)
     return TropicalCycloneIngestionResponse(
         datasets=results,
-        active_cyclones=len(results),
+        active_cyclones=sum(
+            result.dataset.startswith(f"{TROPICAL_CYCLONE_TRACK_DATASET}:")
+            for result in results
+        ),
     )
 
 

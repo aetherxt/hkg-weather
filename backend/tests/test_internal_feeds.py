@@ -1,7 +1,7 @@
 import asyncio
 import struct
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import pytest
@@ -24,6 +24,7 @@ from app.internal_feeds import (
     validate_png,
 )
 from app.json_ingestion import JsonDatasetUpstreamError, JsonIngestionResult
+from app.raw_ingestion import RawIngestionResult
 
 
 def test_ocf_station_configuration_and_source_time() -> None:
@@ -291,12 +292,20 @@ def test_inactive_tropical_cyclone_removes_stale_latest_tracks() -> None:
     )
 
     assert results == []
-    latest.delete_many.assert_awaited_once_with(
-        {
-            "dataset": "tropical_cyclone_track",
-            "_id": {"$nin": []},
-        }
-    )
+    assert latest.delete_many.await_args_list == [
+        call(
+            {
+                "dataset": "tropical_cyclone_track",
+                "_id": {"$nin": []},
+            }
+        ),
+        call(
+            {
+                "dataset": "tropical_cyclone_track_area",
+                "_id": {"$nin": []},
+            }
+        ),
+    ]
 
 
 def test_tropical_cyclone_index_fetch_retries_server_errors(
@@ -327,3 +336,140 @@ def test_tropical_cyclone_index_fetch_retries_server_errors(
     assert results == []
     assert client.get.await_count == 2
     sleep.assert_awaited_once_with(1.0)
+
+
+def test_tropical_cyclone_track_area_requires_filled_forecast_polygon() -> None:
+    cyclone = internal_feeds.ActiveTropicalCyclone(
+        storm_id="2601",
+        english_name="ALPHA",
+        chinese_name="阿爾法",
+    )
+    valid = b"""<kml xmlns="http://earth.google.com/kml/2.2"><Document>
+      <Placemark><styleUrl>#error_cone_0_</styleUrl><Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          114,22,0 115,22,0 115,23,0 114,22,0
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon></Placemark>
+      <Placemark><styleUrl>#circles</styleUrl><Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          114,22,0 115,22,0 115,23,0 114,22,0
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon></Placemark>
+    </Document></kml>"""
+
+    validated = internal_feeds.validate_tropical_cyclone_track_area(
+        valid,
+        cyclone,
+    )
+
+    assert validated.metadata["forecast_periods"] == ["0-72"]
+    assert validated.metadata["storm_id"] == "2601"
+    assert internal_feeds.tropical_cyclone_track_area_available(valid) is True
+    assert (
+        internal_feeds.tropical_cyclone_track_area_available(
+            valid.replace(b"#error_cone_0_", b"#circles")
+        )
+        is False
+    )
+    with pytest.raises(ValueError, match="no forecast polygons"):
+        internal_feeds.validate_tropical_cyclone_track_area(
+            valid.replace(b"#error_cone_0_", b"#circles"),
+            cyclone,
+        )
+
+
+def test_tropical_cyclone_ingests_track_and_potential_area(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = httpx.Response(
+        200,
+        content=b'var tc=["2601,ALPHA,ALPHA ZH"];',
+        request=httpx.Request("GET", "https://example.test/tc-list.js"),
+    )
+    track = httpx.Response(
+        200,
+        content=b"<kml><Placemark><Point><coordinates>114,22</coordinates>"
+        b"</Point></Placemark></kml>",
+        request=httpx.Request("GET", "https://example.test/track.xml"),
+    )
+    area = httpx.Response(
+        200,
+        content=b"<kml><Placemark><styleUrl>#error_cone_0_</styleUrl>"
+        b"<Polygon><outerBoundaryIs><LinearRing><coordinates>"
+        b"114,22 115,22 115,23 114,22"
+        b"</coordinates></LinearRing></outerBoundaryIs></Polygon>"
+        b"</Placemark></kml>",
+        request=httpx.Request("GET", "https://example.test/area.kml"),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[index, track, area])
+    latest = MagicMock()
+    latest.delete_many = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+    ingested = RawIngestionResult(
+        changed=True,
+        source_updated_at=None,
+        fetched_at=datetime(2026, 7, 23, tzinfo=UTC),
+    )
+    ingest = AsyncMock(return_value=ingested)
+    monkeypatch.setattr(internal_feeds, "ingest_raw_dataset", ingest)
+
+    results = asyncio.run(
+        internal_feeds.ingest_tropical_cyclone_tracks(database, client)
+    )
+
+    assert [result.dataset for result in results] == [
+        "tropical_cyclone_track:2601",
+        "tropical_cyclone_track_area:2601",
+    ]
+    assert ingest.await_count == 2
+    assert ingest.await_args_list[0].args[2].dataset == "tropical_cyclone_track"
+    assert (
+        ingest.await_args_list[1].args[2].dataset
+        == "tropical_cyclone_track_area"
+    )
+
+
+def test_missing_tropical_cyclone_track_area_does_not_fail_track(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    index = httpx.Response(
+        200,
+        content=b'var tc=["2601,ALPHA,ALPHA ZH"];',
+        request=httpx.Request("GET", "https://example.test/tc-list.js"),
+    )
+    track = httpx.Response(
+        200,
+        content=b"<kml><coordinates>114,22</coordinates></kml>",
+        request=httpx.Request("GET", "https://example.test/track.xml"),
+    )
+    missing_area = httpx.Response(
+        404,
+        request=httpx.Request("GET", "https://example.test/area.kml"),
+    )
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[index, track, missing_area])
+    latest = MagicMock()
+    latest.delete_one = AsyncMock()
+    latest.delete_many = AsyncMock()
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+    ingested = RawIngestionResult(
+        changed=True,
+        source_updated_at=None,
+        fetched_at=datetime(2026, 7, 23, tzinfo=UTC),
+    )
+    ingest = AsyncMock(return_value=ingested)
+    monkeypatch.setattr(internal_feeds, "ingest_raw_dataset", ingest)
+
+    results = asyncio.run(
+        internal_feeds.ingest_tropical_cyclone_tracks(database, client)
+    )
+
+    assert [result.dataset for result in results] == [
+        "tropical_cyclone_track:2601"
+    ]
+    latest.delete_one.assert_awaited_once_with(
+        {"_id": "tropical_cyclone_track_area:2601"}
+    )

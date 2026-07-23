@@ -12,20 +12,35 @@ declare global {
 
 import { WeatherClouds } from "@/components/weather-clouds";
 import { SettingsPopup } from "@/components/settings-popup";
+import { weatherClient } from "@/lib/weather/client";
 
-const navigationItems = [
+const defaultNavigationItems = [
   { href: "/", label: "Current", page: "home" },
   { href: "/forecast", label: "Forecast", page: "forecast" },
 ] as const;
 
+const typhoonNavigationItem = {
+  href: "/typhoon",
+  label: "Typhoon",
+  page: "typhoon",
+} as const;
+
 export function WeatherNav() {
   const pathname = usePathname();
-  const activePage = pathname.startsWith("/forecast") ? "forecast" : "home";
+  const activePage = pathname.startsWith("/typhoon")
+    ? "typhoon"
+    : pathname.startsWith("/forecast")
+      ? "forecast"
+      : "home";
   const [isVisible, setIsVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [hasActiveTyphoon, setHasActiveTyphoon] = useState(false);
   const showSettingsRef = useRef(false);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const navRef = useRef<HTMLElement>(null);
+  const navigationItems = hasActiveTyphoon
+    ? [...defaultNavigationItems, typhoonNavigationItem]
+    : defaultNavigationItems;
 
   const toggleSettings = useCallback(() => {
     setShowSettings((v) => {
@@ -111,6 +126,31 @@ export function WeatherNav() {
     }
   }, [showSettings]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const refreshTyphoonState = async () => {
+      try {
+        const response = await weatherClient.getTropicalCyclones({
+          signal: controller.signal,
+        });
+        setHasActiveTyphoon(response.data.length > 0);
+      } catch {
+        if (!controller.signal.aborted) {
+          setHasActiveTyphoon(false);
+        }
+      }
+    };
+
+    void refreshTyphoonState();
+    const refreshInterval = window.setInterval(refreshTyphoonState, 5 * 60 * 1000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshInterval);
+    };
+  }, []);
+
   return (
     <>
       <div className="weather-nav-reveal-zone" aria-hidden="true" />
@@ -120,6 +160,7 @@ export function WeatherNav() {
         ref={navRef}
         aria-label="Primary navigation"
         data-active-page={activePage}
+        data-has-typhoon={hasActiveTyphoon ? "true" : undefined}
         data-visible={isVisible ? "true" : undefined}
         onBlurCapture={() => { if (!showSettings) setIsVisible(false); }}
         onFocusCapture={() => setIsVisible(true)}

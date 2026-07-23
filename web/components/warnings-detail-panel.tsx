@@ -41,6 +41,18 @@ function warningTimeParts(value: string) {
   return { date: `${Number(day)}/${Number(month)}` };
 }
 
+function limitSentences(value: string, maximum = 3) {
+  const segmenter = new Intl.Segmenter(["en-HK", "zh-HK"], {
+    granularity: "sentence",
+  });
+  const sentences = Array.from(
+    segmenter.segment(value),
+    ({ segment }) => segment.trim(),
+  ).filter(Boolean);
+
+  return sentences.slice(0, maximum).join(" ");
+}
+
 interface WarningsDetailPanelProps {
   warnings: Warnings;
 }
@@ -73,7 +85,7 @@ export function WarningsDetailPanel({ warnings }: WarningsDetailPanelProps) {
           <h3 className="wp-section-heading">Special Weather Tips</h3>
           {tips.map((tip, i) => (
             <div className="wp-tip" key={i}>
-              <p className="wp-tip-desc">{tip.desc}</p>
+              <p className="wp-tip-desc">{limitSentences(tip.desc)}</p>
               <span className="wp-tip-time">{formatDateTime(tip.updateTime)}</span>
             </div>
           ))}

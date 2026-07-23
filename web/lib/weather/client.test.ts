@@ -95,6 +95,72 @@ test("list readers require and preserve list metadata", async () => {
   assert.equal(response.meta.count, 2);
 });
 
+test("tropical cyclone reader uses the active cyclone endpoint", async () => {
+  let requestedUrl = "";
+  const client = createWeatherClient({
+    fetch: async (input) => {
+      requestedUrl = input.toString();
+      return Response.json({
+        data: [
+          {
+            stormId: "2601",
+            nameEn: "ALPHA",
+            nameZh: "阿爾法",
+            fetchedAt: "2026-07-23T06:01:00Z",
+            geoJson: { type: "FeatureCollection", features: [] },
+            potentialTrackAreaGeoJson: {
+              type: "FeatureCollection",
+              features: [],
+            },
+          },
+        ],
+        meta: {
+          dataset: "tropical_cyclone_track",
+          sourceUpdatedAt: "2026-07-23T06:00:00Z",
+          fetchedAt: "2026-07-23T06:01:00Z",
+          count: 1,
+        },
+      });
+    },
+  });
+
+  const response = await client.getTropicalCyclones();
+
+  assert.equal(requestedUrl, "/api/weather/tropical-cyclones");
+  assert.equal(response.data[0]?.nameEn, "ALPHA");
+  assert.equal(response.meta.count, 1);
+});
+
+test("tropical cyclone history reader bounds the requested archive range", async () => {
+  let requestedUrl = "";
+  const client = createWeatherClient({
+    fetch: async (input) => {
+      requestedUrl = input.toString();
+      return Response.json({
+        data: [],
+        meta: {
+          dataset: "tropical_cyclone_track:2601",
+          sourceUpdatedAt: null,
+          fetchedAt: null,
+          count: 0,
+        },
+      });
+    },
+  });
+
+  await client.getTropicalCycloneHistory(
+    "2601",
+    "2026-07-20T06:00:00.000Z",
+    "2026-07-23T06:00:00.000Z",
+  );
+
+  assert.equal(
+    requestedUrl,
+    "/api/weather/history/tropical-cyclones/2601" +
+      "?from=2026-07-20T06%3A00%3A00.000Z&to=2026-07-23T06%3A00%3A00.000Z",
+  );
+});
+
 test("lamppost list reader returns structured device readings", async () => {
   const client = createWeatherClient({
     fetch: fixtureFetch({

@@ -1,4 +1,5 @@
 import asyncio
+import math
 import re
 import struct
 import xml.etree.ElementTree as ElementTree
@@ -53,6 +54,7 @@ EARTH_WEATHER_CYCLE_DATASET = "earth_weather_model_cycle"
 EARTH_WEATHER_RAINFALL_DATASET = "earth_weather_rainfall"
 RADAR_128_DATASET = "radar_128"
 TROPICAL_CYCLONE_TRACK_DATASET = "tropical_cyclone_track"
+TROPICAL_CYCLONE_TRACK_AREA_DATASET = "tropical_cyclone_track_area"
 OCF_REQUEST_CONCURRENCY = 4
 OCF_STATION_CONFIG_PATH = Path(__file__).parent / "data" / "ocf_stations.json"
 
@@ -443,6 +445,99 @@ def validate_tropical_cyclone_track(
     )
 
 
+def _tropical_cyclone_track_area_root(
+    raw_payload: bytes,
+) -> ElementTree.Element:
+    try:
+        root = ElementTree.fromstring(raw_payload)
+    except ElementTree.ParseError as error:
+        raise ValueError("tropical-cyclone track area is not valid XML") from error
+    if root.tag.rpartition("}")[2].lower() != "kml":
+        raise ValueError("tropical-cyclone track area is not KML")
+    return root
+
+
+def tropical_cyclone_track_area_available(raw_payload: bytes) -> bool:
+    root = _tropical_cyclone_track_area_root(raw_payload)
+    return any(
+        child.text
+        and child.text.strip() in {"#error_cone_0_", "#error_cone_1_"}
+        for placemark in root.iter()
+        if placemark.tag.rpartition("}")[2] == "Placemark"
+        for child in placemark
+        if child.tag.rpartition("}")[2] == "styleUrl"
+    )
+
+
+def validate_tropical_cyclone_track_area(
+    raw_payload: bytes,
+    cyclone: ActiveTropicalCyclone,
+) -> ValidatedPayload:
+    root = _tropical_cyclone_track_area_root(raw_payload)
+    forecast_periods = set()
+    for placemark in root.iter():
+        if placemark.tag.rpartition("}")[2] != "Placemark":
+            continue
+        style_url = next(
+            (
+                child.text.strip()
+                for child in placemark
+                if child.tag.rpartition("}")[2] == "styleUrl" and child.text
+            ),
+            "",
+        )
+        if style_url == "#error_cone_0_":
+            forecast_periods.add("0-72")
+        elif style_url == "#error_cone_1_":
+            forecast_periods.add("72-120")
+        else:
+            continue
+        coordinates = next(
+            (
+                element.text
+                for element in placemark.iter()
+                if element.tag.rpartition("}")[2] == "coordinates"
+                and element.text
+                and element.text.strip()
+            ),
+            None,
+        )
+        if coordinates is None:
+            raise ValueError("tropical-cyclone track area has no coordinates")
+        try:
+            points = [
+                tuple(float(item) for item in token.split(",")[:2])
+                for token in coordinates.split()
+            ]
+        except ValueError as error:
+            raise ValueError(
+                "tropical-cyclone track area has invalid coordinates"
+            ) from error
+        if (
+            len(points) < 4
+            or any(
+                len(point) != 2
+                or not all(math.isfinite(value) for value in point)
+                for point in points
+            )
+            or len(set(points)) < 3
+        ):
+            raise ValueError("tropical-cyclone track area has an invalid polygon")
+
+    if not forecast_periods:
+        raise ValueError("tropical-cyclone track area has no forecast polygons")
+    return ValidatedPayload(
+        source_updated_at=None,
+        metadata={
+            "storm_id": cyclone.storm_id,
+            "storm_name_en": cyclone.english_name,
+            "storm_name_zh": cyclone.chinese_name,
+            "index_url": TROPICAL_CYCLONE_INDEX_URL,
+            "forecast_periods": sorted(forecast_periods),
+        },
+    )
+
+
 @lru_cache
 def load_ocf_stations() -> list[OcfStation]:
     return TypeAdapter(list[OcfStation]).validate_json(
@@ -608,30 +703,105 @@ async def ingest_tropical_cyclone_tracks(
 
     results = []
     for cyclone in cyclones:
-        url = urljoin(
+        track_url = urljoin(
             TROPICAL_CYCLONE_TRACK_ROOT,
             f"tc_gis_track_15a_e_{cyclone.storm_id}.xml",
         )
-        spec = RawDatasetSpec(
+        area_url = urljoin(
+            TROPICAL_CYCLONE_TRACK_ROOT,
+            f"tc_gis_cone_15a_{cyclone.storm_id}.kml",
+        )
+        track_response, area_response = await asyncio.gather(
+            fetch_with_retry(
+                client,
+                track_url,
+                TROPICAL_CYCLONE_TRACK_DATASET,
+            ),
+            fetch_with_retry(
+                client,
+                area_url,
+                TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+                accepted_statuses=frozenset({404}),
+            ),
+        )
+        track_spec = RawDatasetSpec(
             dataset=TROPICAL_CYCLONE_TRACK_DATASET,
             document_id=(f"{TROPICAL_CYCLONE_TRACK_DATASET}:{cyclone.storm_id}"),
-            url=url,
+            url=track_url,
             validate=lambda raw_payload, cyclone=cyclone: (
                 validate_tropical_cyclone_track(raw_payload, cyclone)
             ),
             default_content_type="application/vnd.google-earth.kml+xml",
             archive_retention=ARCHIVE_RETENTION,
         )
-        result = await ingest_raw_dataset(database, client, spec)
-        results.append(ingestion_status(spec.document_id, result))
+        track_result = await ingest_raw_dataset(
+            database,
+            client,
+            track_spec,
+            prefetched_response=track_response,
+        )
+        results.append(ingestion_status(track_spec.document_id, track_result))
 
-    active_document_ids = [result.dataset for result in results]
+        area_document_id = (
+            f"{TROPICAL_CYCLONE_TRACK_AREA_DATASET}:{cyclone.storm_id}"
+        )
+        try:
+            area_available = (
+                area_response.status_code != 404
+                and tropical_cyclone_track_area_available(area_response.content)
+            )
+        except (UnicodeError, ValueError) as error:
+            raise DatasetUpstreamError(
+                TROPICAL_CYCLONE_TRACK_AREA_DATASET
+            ) from error
+        if not area_available:
+            try:
+                await database["latest"].delete_one({"_id": area_document_id})
+            except PyMongoError as error:
+                raise DatasetStorageError(
+                    TROPICAL_CYCLONE_TRACK_AREA_DATASET
+                ) from error
+            continue
+        area_spec = RawDatasetSpec(
+            dataset=TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+            document_id=area_document_id,
+            url=area_url,
+            validate=lambda raw_payload, cyclone=cyclone: (
+                validate_tropical_cyclone_track_area(raw_payload, cyclone)
+            ),
+            default_content_type="application/vnd.google-earth.kml+xml",
+            archive_retention=ARCHIVE_RETENTION,
+        )
+        area_result = await ingest_raw_dataset(
+            database,
+            client,
+            area_spec,
+            prefetched_response=area_response,
+        )
+        results.append(ingestion_status(area_spec.document_id, area_result))
+
+    active_track_ids = [
+        f"{TROPICAL_CYCLONE_TRACK_DATASET}:{cyclone.storm_id}"
+        for cyclone in cyclones
+    ]
+    active_area_ids = [
+        f"{TROPICAL_CYCLONE_TRACK_AREA_DATASET}:{cyclone.storm_id}"
+        for cyclone in cyclones
+    ]
     try:
-        await database["latest"].delete_many(
-            {
-                "dataset": TROPICAL_CYCLONE_TRACK_DATASET,
-                "_id": {"$nin": active_document_ids},
-            }
+        await asyncio.gather(
+            database["latest"].delete_many(
+                {
+                    "dataset": TROPICAL_CYCLONE_TRACK_DATASET,
+                    "_id": {"$nin": active_track_ids},
+                }
+            ),
+            database["latest"].delete_many(
+                {
+                    "dataset": TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+                    "_id": {"$nin": active_area_ids},
+                }
+            ),
         )
     except PyMongoError as error:
         raise DatasetStorageError(TROPICAL_CYCLONE_TRACK_DATASET) from error

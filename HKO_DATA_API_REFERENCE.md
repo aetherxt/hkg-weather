@@ -87,7 +87,8 @@ placed on a map using those bounds.
 The active tropical-cyclone source first returns the list of cyclones with a
 current HKO product, or `NIL` when none are active. Each listed cyclone has a
 separate KML track response containing its geographic path and descriptive
-feature information.
+feature information. A second KML response supplies HKO's 70% Potential Track
+Area, split into the first 72 hours and 72–120 hours.
 
 The documented open-data sources above are the preferred production sources.
 OCF, Earth Weather, radar, and tropical-cyclone website assets are internal HKO
@@ -222,6 +223,7 @@ data = response.json()
 | 128 km radar image | PNG | Relative `href` from the radar KML index |
 | Active tropical-cyclone index | JavaScript/text | `https://www.hko.gov.hk/wxinfo/currwx/tc_gis_list.js` |
 | Current tropical-cyclone track | KML-formatted XML | `https://www.hko.gov.hk/wxinfo/currwx/tc_gis_track_15a_e_{stormId}.xml` |
+| Tropical-cyclone Potential Track Area | KML | `https://www.hko.gov.hk/wxinfo/currwx/tc_gis_cone_15a_{stormId}.kml` |
 
 ## 4. Rainfall in the past hour
 
@@ -1358,9 +1360,27 @@ track coordinates and associated feature descriptions used by the HKO GIS
 viewer. Validate the KML root and require at least one non-empty `coordinates`
 element. Treat `NIL` as a successful inactive state, not an upstream error.
 
-The page also uses separate cone, satellite and radar KML products. They are
-not part of the current storage plan and should not be inferred from the track
-XML alone.
+For the same validated storm identifier, request the Potential Track Area:
+
+```text
+https://www.hko.gov.hk/wxinfo/currwx/tc_gis_cone_15a_{stormId}.kml
+```
+
+This KML contains filled polygons styled as `#error_cone_0_` for the first
+72 hours and `#error_cone_1_` for 72–120 hours. It can also contain auxiliary
+circle polygons styled as `#circles`; those outlines are not separate forecast
+areas and should not be filled by the application. HKO defines the shaded area
+as the region in which the cyclone centre has a 70% probability of falling,
+not the full geographic extent of damaging weather.
+
+The cone can be unavailable or not applicable for an active product. Treat a
+404 or valid KML containing no forecast-area style as an absent optional area
+while continuing to store and serve the track.
+Validate present responses as KML with at least one finite, non-degenerate
+forecast polygon. HKO's rings are not always explicitly closed, so append the
+first coordinate when producing GeoJSON while preserving the raw KML exactly.
+Store the original track and area KML separately, archive only changed content
+for three days, and convert both to GeoJSON at the public reader boundary.
 
 ## 17. Recommended application mapping
 
@@ -1381,6 +1401,7 @@ XML alone.
 | Model map comparison | Earth Weather raster assets, with internal-interface warning |
 | Radar image comparison | 128 km radar KML index and referenced PNG |
 | Active storm path | Current tropical-cyclone track KML, with internal-interface warning |
+| Active storm forecast uncertainty | Potential Track Area KML, with internal-interface warning |
 | Raw ECMWF/AIFS numerical modelling | ECMWF official open data rather than HKO viewer PNGs |
 
 ## 18. Implementation recommendations

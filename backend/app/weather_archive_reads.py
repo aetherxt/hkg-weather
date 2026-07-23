@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -7,6 +8,8 @@ from .internal_feeds import (
     EARTH_WEATHER_RAINFALL_DATASET,
     OCF_STATION_FORECAST_DATASET,
     RADAR_128_DATASET,
+    TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+    TROPICAL_CYCLONE_TRACK_DATASET,
     OcfStationForecastPayload,
 )
 from .official_feeds import (
@@ -22,6 +25,10 @@ from .storage_read import (
     read_binary_payload,
     validate_stored_document,
     validate_stored_metadata,
+)
+from .tropical_cyclones import (
+    tropical_cyclone_geo_json,
+    tropical_cyclone_track_area_geo_json,
 )
 from .weather_read_common import (
     HONG_KONG,
@@ -52,6 +59,7 @@ from .weather_read_models import (
     ArchivedObservation,
     ArchivedRadarFrame,
     ArchivedRainfallFrame,
+    ArchivedTropicalCyclone,
     DataResponse,
     ListResponse,
     RainfallGrid,
@@ -100,6 +108,102 @@ async def get_station_rainfall_history(
     return ListResponse(
         data=data,
         meta=list_response_meta(STATION_RAINFALL_DATASET, documents, len(data)),
+    )
+
+
+@router.get(
+    "/history/tropical-cyclones/{storm_id}",
+    response_model=ListResponse[ArchivedTropicalCyclone],
+)
+async def get_tropical_cyclone_history(
+    storm_id: str,
+    response: Response,
+    database: ReadDatabase,
+    from_time: ArchiveFrom,
+    to_time: ArchiveTo,
+) -> ListResponse[ArchivedTropicalCyclone]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", storm_id):
+        raise DatasetNotFoundError(TROPICAL_CYCLONE_TRACK_DATASET)
+    document_id = f"{TROPICAL_CYCLONE_TRACK_DATASET}:{storm_id}"
+    raw_documents = await archive_documents(
+        database,
+        TROPICAL_CYCLONE_TRACK_DATASET,
+        document_id,
+        "fetched_at",
+        from_time,
+        to_time,
+    )
+    area_document_id = f"{TROPICAL_CYCLONE_TRACK_AREA_DATASET}:{storm_id}"
+    raw_area_documents = await archive_documents(
+        database,
+        TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+        area_document_id,
+        "fetched_at",
+        from_time,
+        to_time,
+    )
+    areas = []
+    for area_document in raw_area_documents:
+        stored_area = validate_stored_document(
+            area_document,
+            TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+        )
+        try:
+            area_storm_id = str(area_document["storm_id"])
+        except KeyError as error:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_AREA_DATASET) from error
+        if area_storm_id != storm_id:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_AREA_DATASET)
+        areas.append(
+            (
+                stored_area,
+                tropical_cyclone_track_area_geo_json(stored_area.payload),
+            )
+        )
+    data = []
+    documents = []
+    for document in raw_documents:
+        stored = validate_stored_document(
+            document,
+            TROPICAL_CYCLONE_TRACK_DATASET,
+        )
+        try:
+            stored_storm_id = str(document["storm_id"])
+            name_en = str(document["storm_name_en"])
+            name_zh = str(document["storm_name_zh"])
+        except KeyError as error:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET) from error
+        if stored_storm_id != storm_id or not name_en:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET)
+        closest_area = (
+            min(
+                areas,
+                key=lambda area: abs(
+                    (area[0].fetched_at - stored.fetched_at).total_seconds()
+                ),
+            )
+            if areas
+            else None
+        )
+        data.append(
+            ArchivedTropicalCyclone(
+                storm_id=stored_storm_id,
+                name_en=name_en,
+                name_zh=name_zh,
+                fetched_at=stored.fetched_at,
+                geo_json=tropical_cyclone_geo_json(stored.payload),
+                potential_track_area_geo_json=(
+                    closest_area[1] if closest_area is not None else None
+                ),
+            )
+        )
+        documents.append(stored)
+        if closest_area is not None:
+            documents.append(closest_area[0])
+    set_latest_cache(response, forecast=True)
+    return ListResponse(
+        data=data,
+        meta=list_response_meta(document_id, documents, len(data)),
     )
 
 

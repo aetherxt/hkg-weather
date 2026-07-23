@@ -128,7 +128,18 @@ class TropicalCyclone(PublicModel):
     storm_id: str
     name_en: str
     name_zh: str
+    fetched_at: datetime
     geo_json: dict[str, Any]
+    potential_track_area_geo_json: dict[str, Any] | None
+
+
+class ArchivedTropicalCyclone(PublicModel):
+    storm_id: str
+    name_en: str
+    name_zh: str
+    fetched_at: datetime
+    geo_json: dict[str, Any]
+    potential_track_area_geo_json: dict[str, Any] | None
 
 
 class AstronomicalTimes(PublicModel):

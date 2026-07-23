@@ -23,7 +23,9 @@
     "lib/weather/state.ts",
     "lib/weather/test-helpers.ts",
     "lib/weather/test.ts",
-    "lib/weather/types.ts"
+    "lib/weather/types.ts",
+    "lib/weather/view-models.ts",
+    "lib/weather/view-models.test.ts"
   ],
   "exclude": ["node_modules", ".next", ".test-dist"]
 }

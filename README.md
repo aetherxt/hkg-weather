@@ -98,7 +98,8 @@ All public readers use `MONGODB_READ_URI`. JSON responses use a `data` and
 `meta` envelope; readers include `dataset`, `sourceUpdatedAt` and
 `fetchedAt` in `meta`, and list readers also include `count`. Stored JSON is
 decoded, regional CSV values are typed, OCF and lamppost fields are normalized
-to camelCase, and tropical-cyclone KML is returned as GeoJSON.
+to camelCase, and tropical-cyclone track and Potential Track Area KML are
+returned as GeoJSON.
 
 | Route | Response |
 |---|---|
@@ -115,7 +116,7 @@ to camelCase, and tropical-cyclone KML is returned as GeoJSON.
 | `GET /api/weather/stations` | Configured OCF station codes and labels |
 | `GET /api/weather/stations/{stationCode}/forecast` | One complete OCF station forecast |
 | `GET /api/weather/models` | Configured model labels and current cycles |
-| `GET /api/weather/tropical-cyclones` | Active storm metadata and GeoJSON tracks |
+| `GET /api/weather/tropical-cyclones` | Active storm metadata, GeoJSON tracks and the two HKO 70% Potential Track Area polygons when available |
 
 Map-data readers expose frame metadata separately from larger payloads:
 
@@ -136,6 +137,7 @@ routes.
 | Route | Response |
 |---|---|
 | `GET /api/weather/history/rainfall/stations?from=&to=` | Archived station-rainfall observations |
+| `GET /api/weather/history/tropical-cyclones/{stormId}?from=&to=` | Archived storm tracks with the closest matching archived Potential Track Area |
 | `GET /api/weather/history/rainfall/nowcast?from=&to=` | Archived nowcast issue/valid-time index |
 | `GET /api/weather/history/rainfall/nowcast/{issueTime}/{validTime}` | One immutable archived numerical grid |
 | `GET /api/weather/history/radar?from=&to=` | Archived radar-frame index |
@@ -176,7 +178,7 @@ slot-addressed deduplication, depending on the dataset.
 | `/api/cron/earth-weather-cycles` | Latest cycle metadata for each configured Earth Weather model |
 | `/api/cron/earth-weather-rainfall` | Nearest future surface-rainfall raster for each rainfall-capable Earth Weather model, latest plus 3-day archive |
 | `/api/cron/radar-128` | Latest 128 km radar PNG and geographic bounds, with one archive entry per 30-minute slot |
-| `/api/cron/tropical-cyclones` | Current official tropical-cyclone track XML per active cyclone, latest plus 3-day archive |
+| `/api/cron/tropical-cyclones` | Current official tropical-cyclone track and Potential Track Area KML per active cyclone, latest plus 3-day archives |
 | `/api/cron/ingest-all` | Manually run every configured ingestion source and return a per-job result; do not schedule this route as a cron job |
 
 The internal-feed routes use the same Bearer secret as the official-feed
@@ -185,7 +187,10 @@ routes. OCF station data is stored under IDs such as
 such as `earth_weather_model_cycle:ec`, and rainfall rasters use IDs such as
 `earth_weather_rainfall:ec`. A tropical-cyclone request is successful with an
 empty `datasets` array and `activeCyclones: 0` when HKO reports no active
-cyclone.
+cyclone. Potential Track Area documents use IDs such as
+`tropical_cyclone_track_area:2617`; a missing or empty HKO cone is treated as
+an optional, not-applicable product and does not prevent the track from
+updating.
 
 Before validating and replacing an unchanged payload, the shared ingestion
 pipeline compares its exact byte hash with the latest stored document.

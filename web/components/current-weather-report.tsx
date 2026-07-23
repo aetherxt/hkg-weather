@@ -5,7 +5,9 @@ import type {
   WeatherDetailInteractionProps,
   WeatherDetailSection,
 } from "@/components/weather-detail-sections";
+import { getConditionTone } from "@/lib/weather/condition-tone";
 import type { AstronomicalTimes } from "@/lib/weather/types";
+import { getUvTone } from "@/lib/weather/uv-tone";
 
 function formatUpdatedAt(iso: string) {
   const date = new Date(iso);
@@ -69,44 +71,6 @@ function blueColor(value: number | null, max: number = 100): string | undefined 
   if (value === null || value <= 0) return undefined;
   const intensity = Math.min(value / max, 1);
   return `rgba(8, 62, 110, ${(0.08 + intensity * 0.74).toFixed(2)})`;
-}
-
-function getConditionTone(condition: string) {
-  const normalizedCondition = condition.toLowerCase();
-
-  if (
-    normalizedCondition.includes("shower") ||
-    normalizedCondition.includes("rain") ||
-    normalizedCondition.includes("drizzle") ||
-    normalizedCondition.includes("thunder")
-  ) {
-    return "rain";
-  }
-
-  if (
-    normalizedCondition.includes("cloud") ||
-    normalizedCondition.includes("overcast")
-  ) {
-    return "cloudy";
-  }
-
-  if (
-    normalizedCondition.includes("sun") ||
-    normalizedCondition.includes("fine") ||
-    normalizedCondition.includes("clear")
-  ) {
-    return "sunny";
-  }
-
-  return "neutral";
-}
-
-function getUvTone(uvIndex: number) {
-  if (uvIndex <= 2) return "low";
-  if (uvIndex <= 5) return "moderate";
-  if (uvIndex <= 7) return "high";
-  if (uvIndex <= 10) return "very-high";
-  return "extreme";
 }
 
 export function CurrentWeatherReport({

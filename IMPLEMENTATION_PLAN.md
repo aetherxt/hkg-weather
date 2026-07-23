@@ -89,7 +89,8 @@ Implementation sequence: [NEXT_STEPS.md](./NEXT_STEPS.md)
   width, height and row-major numerical values ordered north-to-south and
   west-to-east.
 - Radar and Earth Weather image endpoints return native `image/png` bytes.
-- Tropical-cyclone KML coordinates are converted to GeoJSON.
+- Tropical-cyclone track and Potential Track Area KML coordinates are converted
+  to GeoJSON. The browser shades the first 72 hours and 72–120 hours separately.
 - Configured lamppost and OCF station information is joined with labels and
   coordinates before it reaches the frontend.
 - Valid resources without stored data return `404`; invalid identifiers,
@@ -175,6 +176,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 
 - 128 km weather-radar KML index and PNG overlays
 - Current tropical-cyclone track information
+- Current 70% Potential Track Area for each active tropical cyclone
 - Tropical-cyclone best-track data for comparison when available
 
 ## 3. Storage
@@ -245,6 +247,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | Other Earth Weather fields | None by default | Fetch on demand unless later added to the storage plan | Not stored |
 | 128 km radar | Original PNG plus bounds and observation time from KML | Maintain latest and archive one image every 30 minutes | Latest plus 3-day archive |
 | Current tropical-cyclone track | Raw XML | Save each changed track while a cyclone product exists; also maintain latest | 3 days |
+| Tropical-cyclone Potential Track Area | Raw KML per active cyclone; expose only the two filled HKO cone polygons as GeoJSON and ignore auxiliary circle outlines | Fetch with the existing tropical-cyclone job, save each changed area and maintain latest while available | 3 days |
 | Tropical-cyclone best track | Raw official data used when available for comparison | Fetch on demand or maintain the latest published file | Latest only |
 
 ### 3.4 Rainfall archive size

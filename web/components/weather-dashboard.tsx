@@ -136,6 +136,9 @@ export function WeatherDashboard({
   const hasWarnings = warnings
     ? Object.values(warnings).some((w) => w.actionCode !== "CANCEL")
     : false;
+  const hasThunderstormWarning = warnings
+    ? activeWarnings(warnings).some((warning) => warning.code === "WTS")
+    : false;
   const warningsDetailSection = hasWarnings && warningsData
     ? [{
         id: "warnings" as const,
@@ -378,12 +381,14 @@ export function WeatherDashboard({
             >
               {activeDetail.id === "temperature" ? (
                 <TemperatureDetailPanel
+                  currentTemperatures={currentSection?.data.temperature?.data ?? []}
                   regionalTemperature={regionalTemperature ?? initialWeather.regionalTemperature}
                   lampposts={lampposts ?? initialWeather.lampposts}
                   regionalWind={regionalWind ?? initialWeather.regionalWind}
                 />
               ) : activeDetail.id === "rainfall-wind" ? (
                 <RainfallDetailPanel
+                  currentRainfall={currentSection?.data.rainfall?.data ?? []}
                   stationRainfall={stationRainfall ?? initialWeather.stationRainfall}
                   localForecast={localForecast ?? initialWeather.localForecast}
                 />
@@ -393,6 +398,10 @@ export function WeatherDashboard({
                 <SunPathPanel
                   astronomical={astronomical}
                   initialNow={initialNow}
+                  condition={vm?.condition ?? null}
+                  rainfall={vm?.rainfall ?? null}
+                  uvIndex={vm?.uvIndex ?? null}
+                  thunderstormWarningActive={hasThunderstormWarning}
                 />
               ) : (
                 <>

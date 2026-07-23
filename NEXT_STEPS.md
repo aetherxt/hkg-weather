@@ -216,7 +216,7 @@ Add layers in increasing order of uncertainty:
 1. Regional weather stations and smart-lamppost markers.
 2. Numerical HKO gridded rainfall nowcast.
 3. Radar PNG overlay using its stored geographic bounds.
-4. Active tropical-cyclone GeoJSON tracks.
+4. Active tropical-cyclone GeoJSON tracks and 70% Potential Track Area polygons.
 5. Earth Weather rainfall rasters after verifying their internal encoding,
    projection, colour scale and bounds.
 6. Additional Earth Weather fields only after rainfall is proven.

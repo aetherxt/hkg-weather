@@ -623,7 +623,7 @@ html {
 }
 
 .sun-path-curve-day {
-  stroke: rgba(255, 255, 255, 0.9);
+  stroke: rgba(159, 171, 180, 0.88);
   stroke-width: 2.5;
 }
 
@@ -640,7 +640,7 @@ html {
 }
 
 .sun-path-glow-day {
-  stroke: rgba(255, 255, 255, 0.34);
+  stroke: rgba(159, 171, 180, 0.28);
 }
 
 .sun-path-glow-limit {
@@ -672,6 +672,43 @@ html {
   animation: sun-cloud-drift 8s ease-in-out -5s infinite alternate;
 }
 
+.sun-path-rain-clouds {
+  fill: #9fb2be;
+}
+
+.sun-path-thunder-bolt {
+  fill: #f2d36c;
+  filter: drop-shadow(0 0 4px rgba(241, 209, 99, 0.46));
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center top;
+}
+
+.sun-path-thunder-bolt-one {
+  animation: sun-thunder-flash 3.8s ease-out infinite;
+}
+
+.sun-path-thunder-bolt-two {
+  animation: sun-thunder-flash 4.6s ease-out -1.9s infinite;
+}
+
+.sun-path-thunder-bolt-three {
+  animation: sun-thunder-flash 4.2s ease-out -0.8s infinite;
+}
+
+.sun-path-rain {
+  fill: none;
+  stroke: #397fa9;
+  stroke-linecap: round;
+  stroke-width: 2.3;
+}
+
+.sun-path-rain-drop {
+  animation: sun-rain-fall 520ms linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .sun-path-sun {
   transform-box: fill-box;
   transform-origin: center;
@@ -687,6 +724,34 @@ html {
   fill: #f5c451;
   stroke: rgba(255, 255, 255, 0.74);
   stroke-width: 1.2;
+}
+
+.sun-path-sun-uv {
+  fill: #233846;
+  font-size: 14px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.sun-path-sun[data-uv-tone="low"] .sun-path-sun-uv {
+  fill: #2f7d4b;
+}
+
+.sun-path-sun[data-uv-tone="moderate"] .sun-path-sun-uv {
+  fill: #8a5900;
+}
+
+.sun-path-sun[data-uv-tone="high"] .sun-path-sun-uv {
+  fill: #b84f0b;
+}
+
+.sun-path-sun[data-uv-tone="very-high"] .sun-path-sun-uv {
+  fill: #b52c35;
+}
+
+.sun-path-sun[data-uv-tone="extreme"] .sun-path-sun-uv {
+  fill: #693284;
 }
 
 .sun-current-time {
@@ -726,10 +791,49 @@ html {
 
 @keyframes sun-cloud-drift {
   from {
-    translate: -4px 0;
+    translate: -14px 0;
   }
   to {
-    translate: 5px 0;
+    translate: 16px 0;
+  }
+}
+
+@keyframes sun-rain-fall {
+  0% {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  82% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    translate: -8px 34px;
+  }
+}
+
+@keyframes sun-thunder-flash {
+  0%,
+  82%,
+  100% {
+    opacity: 0;
+    scale: 0.98 0.94;
+  }
+  84% {
+    opacity: 0.92;
+    scale: 1 1;
+  }
+  86% {
+    opacity: 0.16;
+  }
+  88% {
+    opacity: 0.78;
+  }
+  91% {
+    opacity: 0;
   }
 }
 
@@ -879,7 +983,355 @@ html {
   flex-direction: column;
   max-height: min(70dvh, 46rem);
   min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0;
+}
+
+.temperature-detail-panel > .temperature-region-list {
+  flex: none;
+  overflow-y: visible;
+}
+
+.weather-overview-map {
+  flex: 0 0 auto;
+  margin-bottom: 0.9rem;
+}
+
+.weather-overview-map .rw-section-header {
+  margin-bottom: 0.4rem;
+}
+
+.weather-overview-map-viewport {
+  position: relative;
+  border: 1px solid rgba(55, 68, 76, 0.12);
+  border-radius: 0.45rem;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+.weather-overview-map-chart {
+  display: block;
+  width: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.weather-overview-map-chart[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.weather-overview-map-chart:focus,
+.weather-overview-map-chart:focus-visible {
+  outline: none;
+}
+
+.temperature-map-water {
+  fill: #f4f6f7;
+}
+
+.temperature-map-tile {
+  opacity: 0.96;
+  pointer-events: none;
+}
+
+.temperature-map-desaturating-layer {
+  fill: rgba(248, 249, 250, 0.08);
+  pointer-events: none;
+}
+
+.weather-map-radar-overlay {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.temperature-map-reading {
+  stroke: rgba(248, 249, 250, 0.96);
+  stroke-width: 4.5px;
+  paint-order: stroke fill;
+  font-size: 18px;
+  font-weight: 780;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  pointer-events: none;
+}
+
+.temperature-map-reading[data-grouped="true"] {
+  font-weight: 820;
+}
+
+.temperature-map-controls {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(54, 67, 75, 0.18);
+  border-radius: 0.35rem;
+  background: rgba(250, 251, 251, 0.9);
+  box-shadow: 0 2px 8px rgba(39, 50, 57, 0.08);
+  backdrop-filter: blur(5px);
+}
+
+.temperature-map-controls button {
+  width: 1.75rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(28, 42, 50, 0.72);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.temperature-map-controls button + button {
+  border-top: 1px solid rgba(54, 67, 75, 0.14);
+}
+
+.temperature-map-controls button:hover:not(:disabled) {
+  background: rgba(8, 62, 110, 0.08);
+}
+
+.temperature-map-controls button:disabled {
+  color: rgba(28, 42, 50, 0.22);
+  cursor: default;
+}
+
+.weather-map-reset-icon {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.temperature-map-attribution {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.24rem;
+  margin: 0;
+  padding: 0.08rem 0.22rem;
+  border-radius: 0.18rem;
+  background: rgba(250, 251, 251, 0.76);
+  color: rgba(42, 52, 58, 0.58);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.temperature-map-attribution a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.typhoon-page {
+  height: 100svh;
+  overflow-y: auto;
+}
+
+.typhoon-page-content {
+  box-sizing: border-box;
+  width: min(100%, 68rem);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: clamp(3rem, 7vh, 5rem) clamp(1.25rem, 5vw, 4rem) 10rem;
+}
+
+.typhoon-page-header {
+  margin-bottom: 1.2rem;
+}
+
+.typhoon-page-kicker {
+  margin: 0 0 0.35rem;
+  color: rgba(8, 62, 110, 0.58);
+  font-size: 0.68rem;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.typhoon-page-header h1 {
+  margin: 0;
+  color: rgba(20, 30, 36, 0.94);
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  font-weight: 610;
+  letter-spacing: -0.04em;
+}
+
+.typhoon-page-name {
+  margin: 0.3rem 0 0;
+  color: rgba(45, 58, 66, 0.48);
+  font-size: 0.82rem;
+  font-weight: 480;
+}
+
+.typhoon-page-state {
+  margin: 2rem 0;
+  color: rgba(45, 58, 66, 0.56);
+  font-size: 0.9rem;
+}
+
+.typhoon-track-map {
+  width: 100%;
+}
+
+.typhoon-track-map .weather-overview-map-viewport {
+  border-color: rgba(8, 62, 110, 0.16);
+  border-radius: 0.65rem;
+  box-shadow: 0 14px 36px rgba(30, 47, 58, 0.08);
+}
+
+.typhoon-track-map-chart {
+  min-height: 20rem;
+}
+
+.typhoon-track-lines path {
+  fill: none;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.62;
+  vector-effect: non-scaling-stroke;
+}
+
+.typhoon-track-areas path {
+  stroke: rgba(170, 128, 18, 0.32);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.typhoon-track-area-earlier {
+  fill: rgba(247, 207, 72, 0.24);
+}
+
+.typhoon-track-area-later {
+  fill: rgba(247, 207, 72, 0.13);
+}
+
+.typhoon-track-points circle {
+  stroke: rgba(250, 252, 253, 0.9);
+  stroke-width: 1.8;
+  opacity: 0.78;
+  cursor: help;
+  vector-effect: non-scaling-stroke;
+}
+
+.typhoon-track-legend {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  max-width: calc(100% - 5rem);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(54, 67, 75, 0.12);
+  border-radius: 0.35rem;
+  background: rgba(250, 251, 251, 0.86);
+  box-shadow: 0 2px 8px rgba(39, 50, 57, 0.06);
+  color: rgba(35, 48, 56, 0.62);
+  font-size: 0.66rem;
+  font-weight: 560;
+  backdrop-filter: blur(5px);
+}
+
+.typhoon-track-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.typhoon-track-legend i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  opacity: 0.72;
+}
+
+.typhoon-track-legend .typhoon-track-area-key {
+  border: 1px solid rgba(170, 128, 18, 0.28);
+  border-radius: 0.12rem;
+}
+
+.typhoon-track-area-key-earlier {
+  background: rgba(247, 207, 72, 0.5);
+}
+
+.typhoon-track-area-key-later {
+  background: rgba(247, 207, 72, 0.27);
+}
+
+.typhoon-timeline {
+  margin-top: 1rem;
+}
+
+.typhoon-timeline-caption {
+  margin: 0 0 0.55rem;
+  color: rgba(45, 58, 66, 0.5);
+  font-size: 0.73rem;
+  font-weight: 480;
+  font-variant-numeric: tabular-nums;
+}
+
+.typhoon-timeline-controls {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) 2.2rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.typhoon-timeline-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid rgba(8, 62, 110, 0.24);
+  border-radius: 50%;
+  background: rgba(248, 251, 253, 0.62);
+  color: rgba(8, 62, 110, 0.8);
+  cursor: pointer;
+}
+
+.typhoon-timeline-controls button:disabled {
+  border-color: rgba(45, 58, 66, 0.1);
+  color: rgba(45, 58, 66, 0.22);
+  cursor: default;
+}
+
+.typhoon-timeline-controls button:not(:disabled):hover {
+  background: rgba(8, 62, 110, 0.08);
+}
+
+.typhoon-timeline-controls button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.typhoon-timeline-controls input[type="range"] {
+  width: 100%;
+  height: 1.5rem;
+  margin: 0;
+  accent-color: #0c568f;
+  cursor: pointer;
+}
+
+.typhoon-timeline-controls input[type="range"]:disabled {
+  cursor: default;
 }
 
 .temperature-map-heading {
@@ -1669,6 +2121,10 @@ html {
     backdrop-filter 220ms ease;
 }
 
+.weather-nav[data-has-typhoon="true"] {
+  width: min(322px, calc(100vw - 24px));
+}
+
 .weather-nav[data-visible="true"] {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
@@ -1731,6 +2187,10 @@ html {
   grid-template-columns: auto 1fr 1fr;
   align-items: center;
   min-height: 40px;
+}
+
+.weather-nav[data-has-typhoon="true"] .weather-nav-track {
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
 }
 
 .weather-nav-track > .weather-nav-settings {
@@ -2323,8 +2783,14 @@ html {
   .weather-mini-panel,
   .weather-mini-nav-link[data-active="true"],
   .sun-path-sun,
-  .sun-path-cloud {
+  .sun-path-cloud,
+  .sun-path-rain-drop,
+  .sun-path-thunder-bolt {
     animation: none;
+  }
+
+  .sun-path-thunder-bolt {
+    opacity: 0.68;
   }
 
   .weather-nav-selector,

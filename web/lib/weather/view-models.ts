@@ -1,5 +1,5 @@
-import { primaryIconDescription } from "./icon-map";
-import type { CurrentWeather } from "./types";
+import { primaryIconDescription } from "./icon-map.ts";
+import type { CurrentWeather } from "./types.ts";
 
 export interface CurrentWeatherViewModel {
   temperature: number | null;
@@ -28,31 +28,46 @@ export function currentWeatherViewModel(
   temperatureDistrict?: string,
   rainfallDistrict?: string,
 ): CurrentWeatherViewModel {
+  const temperatures = Array.isArray(data.temperature?.data)
+    ? data.temperature.data
+    : [];
+  const humidities = Array.isArray(data.humidity?.data)
+    ? data.humidity.data
+    : [];
+  const rainfallReadings = Array.isArray(data.rainfall?.data)
+    ? data.rainfall.data
+    : [];
+  const uvReadings = Array.isArray(data.uvindex?.data)
+    ? data.uvindex.data
+    : [];
   const temp = temperatureDistrict
-    ? data.temperature?.data.find((t) => t.place === temperatureDistrict)
+    ? temperatures.find((t) => t.place === temperatureDistrict)
     : undefined;
-  const hkoTemp = data.temperature?.data.find(
+  const hkoTemp = temperatures.find(
     (t) => t.place === HKO_STATION,
   );
-  const hkoHumidity = data.humidity?.data.find(
+  const hkoHumidity = humidities.find(
     (h) => h.place === HKO_STATION,
   );
   const rain = rainfallDistrict
-    ? data.rainfall?.data.find((r) => r.place === rainfallDistrict)
+    ? rainfallReadings.find((r) => r.place === rainfallDistrict)
     : undefined;
-  const mainRainfall = data.rainfall?.data.find(
+  const mainRainfall = rainfallReadings.find(
     (r) => r.main === "TRUE",
   );
-  const firstRainfall = data.rainfall?.data[0];
-  const uv = data.uvindex?.data[0];
+  const firstRainfall = rainfallReadings[0];
+  const uv = uvReadings[0];
 
-  const resolvedDistrict = temp?.place ?? hkoTemp?.place ?? data.temperature?.data[0]?.place ?? null;
+  const resolvedDistrict =
+    temp?.place ?? hkoTemp?.place ?? temperatures[0]?.place ?? null;
 
   return {
-    temperature: temp?.value ?? hkoTemp?.value ?? data.temperature?.data[0]?.value ?? null,
+    temperature: temp?.value ?? hkoTemp?.value ?? temperatures[0]?.value ?? null,
     temperatureDistrict: resolvedDistrict ? temperatureDisplayName(resolvedDistrict) : null,
-    condition: primaryIconDescription(data.icon) ?? null,
-    humidity: hkoHumidity?.value ?? data.humidity?.data[0]?.value ?? null,
+    condition: primaryIconDescription(
+      Array.isArray(data.icon) ? data.icon : [],
+    ) ?? null,
+    humidity: hkoHumidity?.value ?? humidities[0]?.value ?? null,
     rainfall: rain?.max ?? mainRainfall?.max ?? firstRainfall?.max ?? null,
     uvIndex: uv?.value ?? null,
     uvLevel: uv?.desc ? uv.desc.charAt(0).toUpperCase() + uv.desc.slice(1) : null,

@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { RainfallOverviewMap } from "@/components/hong-kong-weather-map";
 import type { WeatherSectionState } from "@/lib/weather/state";
 import type {
+  DistrictRainfallReading,
   LocalForecast,
   StationRainfallResponse,
 } from "@/lib/weather/types";
@@ -150,9 +152,11 @@ function moveRegion(
 }
 
 export function RainfallDetailPanel({
+  currentRainfall,
   stationRainfall,
   localForecast,
 }: {
+  currentRainfall: readonly DistrictRainfallReading[];
   stationRainfall: WeatherSectionState<StationRainfallResponse>;
   localForecast: WeatherSectionState<LocalForecast>;
 }) {
@@ -163,14 +167,14 @@ export function RainfallDetailPanel({
       ? stationRainfall.data
       : null;
 
-  const rawReadings = regionalData?.hourlyRainfall ?? [];
   const readings = useMemo(
-    () => rawReadings.map((r) => ({
-      automaticWeatherStation: r.automaticWeatherStation,
-      automaticWeatherStationID: r.automaticWeatherStationID,
-      value: rainfallMm(r.value),
-    })),
-    [rawReadings],
+    () =>
+      (regionalData?.hourlyRainfall ?? []).map((reading) => ({
+        automaticWeatherStation: reading.automaticWeatherStation,
+        automaticWeatherStationID: reading.automaticWeatherStationID,
+        value: rainfallMm(reading.value),
+      })),
+    [regionalData],
   );
 
   const allItems = useMemo(() => buildRainfallStationItems(readings), [readings]);
@@ -225,6 +229,7 @@ export function RainfallDetailPanel({
   return (
     <div className="rw-panel">
       {forecastSection(localForecast)}
+      <RainfallOverviewMap readings={currentRainfall} />
       <div className="rw-section">
         <div className="rw-section-header">
           <h3 className="rw-section-heading">Station Rainfall (past hour)</h3>

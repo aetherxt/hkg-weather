@@ -371,6 +371,146 @@ def test_nowcast_history_uses_metadata_only() -> None:
     assert "payload" not in projection
 
 
+def test_tropical_cyclone_history_returns_archived_geo_json() -> None:
+    kml = b"""<?xml version="1.0"?>
+<kml xmlns="http://earth.google.com/kml/2.2"><Document>
+  <Placemark>
+    <styleUrl>#official</styleUrl>
+    <LineString><coordinates>120.0,18.0,0 118.0,20.0,0</coordinates></LineString>
+  </Placemark>
+  <Placemark>
+    <Point><coordinates>118.0,20.0,0</coordinates></Point>
+    <description>Date and time: 18 Jul, 14HKT</description>
+  </Placemark>
+</Document></kml>"""
+    archived = {
+        "payload": Binary(kml),
+        "source_updated_at": None,
+        "fetched_at": datetime(2026, 7, 18, 6, tzinfo=UTC),
+        "content_hash": "c" * 64,
+        "content_type": "application/vnd.google-earth.kml+xml",
+        "byte_size": len(kml),
+        "storm_id": "2601",
+        "storm_name_en": "ALPHA",
+        "storm_name_zh": "阿爾法",
+    }
+    area_kml = b"""<kml xmlns="http://earth.google.com/kml/2.2"><Document>
+      <Placemark><styleUrl>#error_cone_0_</styleUrl><Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          114,22,0 115,22,0 115,23,0 114.1,22.1,0
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon></Placemark>
+      <Placemark><styleUrl>#circles</styleUrl><Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          113,21,0 116,21,0 116,24,0 113,21,0
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon></Placemark>
+    </Document></kml>"""
+    archived_area = {
+        **archived,
+        "payload": Binary(area_kml),
+        "byte_size": len(area_kml),
+    }
+    cursor = MagicMock()
+    cursor.sort.return_value = cursor
+    cursor.limit.return_value = cursor
+    cursor.to_list = AsyncMock(return_value=[archived])
+    area_cursor = MagicMock()
+    area_cursor.sort.return_value = area_cursor
+    area_cursor.limit.return_value = area_cursor
+    area_cursor.to_list = AsyncMock(return_value=[archived_area])
+    archive = MagicMock()
+    archive.find.side_effect = [cursor, area_cursor]
+    database = MagicMock()
+    database.__getitem__.return_value = archive
+
+    response = request(
+        (
+            "/api/weather/history/tropical-cyclones/2601?"
+            "from=2026-07-18T05:00:00Z&to=2026-07-18T07:00:00Z"
+        ),
+        database,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["stormId"] == "2601"
+    assert response.json()["data"][0]["fetchedAt"] == "2026-07-18T06:00:00Z"
+    feature = response.json()["data"][0]["geoJson"]["features"][0]
+    assert feature["properties"]["model"] == "HKO Official"
+    assert feature["properties"]["styleUrl"] == "#official"
+    assert feature["geometry"]["type"] == "LineString"
+    area = response.json()["data"][0]["potentialTrackAreaGeoJson"]
+    assert len(area["features"]) == 1
+    assert area["features"][0]["properties"] == {
+        "model": "HKO Official",
+        "forecastPeriod": "0-72 hours",
+        "probability": 0.7,
+        "styleUrl": "#error_cone_0_",
+    }
+    assert area["features"][0]["geometry"]["type"] == "Polygon"
+    ring = area["features"][0]["geometry"]["coordinates"][0]
+    assert ring[0] == ring[-1]
+    query = archive.find.call_args.args[0]
+    assert query["document_id"] == "tropical_cyclone_track_area:2601"
+    assert "fetched_at" in query
+
+
+def test_active_tropical_cyclone_includes_potential_track_area() -> None:
+    track_kml = b"""<kml><Document><Placemark>
+      <LineString><coordinates>120,18,0 118,20,0</coordinates></LineString>
+    </Placemark></Document></kml>"""
+    area_kml = b"""<kml><Document>
+      <Placemark><styleUrl>#error_cone_0_</styleUrl><Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>
+          114,22,0 115,22,0 115,23,0 114,22,0
+        </coordinates></LinearRing></outerBoundaryIs>
+      </Polygon></Placemark>
+    </Document></kml>"""
+    common = {
+        "source_updated_at": None,
+        "fetched_at": datetime(2026, 7, 23, 6, tzinfo=UTC),
+        "content_hash": "d" * 64,
+        "content_type": "application/vnd.google-earth.kml+xml",
+        "storm_id": "2617",
+        "storm_name_en": "Tropical Depression",
+        "storm_name_zh": "熱帶低氣壓",
+    }
+    track_document = {
+        **common,
+        "payload": Binary(track_kml),
+        "byte_size": len(track_kml),
+    }
+    area_document = {
+        **common,
+        "payload": Binary(area_kml),
+        "byte_size": len(area_kml),
+    }
+    track_cursor = MagicMock()
+    track_cursor.limit.return_value = track_cursor
+    track_cursor.to_list = AsyncMock(return_value=[track_document])
+    area_cursor = MagicMock()
+    area_cursor.limit.return_value = area_cursor
+    area_cursor.to_list = AsyncMock(return_value=[area_document])
+    latest = MagicMock()
+    latest.find.side_effect = [track_cursor, area_cursor]
+    database = MagicMock()
+    database.__getitem__.return_value = latest
+
+    response = request("/api/weather/tropical-cyclones", database)
+
+    assert response.status_code == 200
+    cyclone = response.json()["data"][0]
+    assert cyclone["stormId"] == "2617"
+    assert cyclone["geoJson"]["features"][0]["geometry"]["type"] == "LineString"
+    assert (
+        cyclone["potentialTrackAreaGeoJson"]["features"][0]["geometry"]["type"]
+        == "Polygon"
+    )
+    assert latest.find.call_args_list[1].args[0] == {
+        "dataset": "tropical_cyclone_track_area"
+    }
+
+
 def test_station_history_queries_only_the_requested_document_id() -> None:
     archived = json_document(
         {

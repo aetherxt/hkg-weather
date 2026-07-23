@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { TemperatureOverviewMap } from "@/components/hong-kong-weather-map";
 import {
   buildTemperatureSensorItems,
   defaultTemperatureRegionOrder,
@@ -13,7 +14,12 @@ import {
   type TemperatureSensorItem,
 } from "@/lib/weather/temperature-regions";
 import type { WeatherSectionState } from "@/lib/weather/state";
-import type { LamppostReading, TemperatureReading, WindReading } from "@/lib/weather/types";
+import type {
+  LamppostReading,
+  PlaceValue,
+  TemperatureReading,
+  WindReading,
+} from "@/lib/weather/types";
 
 const ACTIVE_SENSORS_COOKIE_NAME = "hkw-active-stations";
 const HIDDEN_SENSORS_COOKIE_NAME = "hkw-hidden-temperature-sensors";
@@ -258,10 +264,12 @@ function TemperatureRegionGrid({
 }
 
 export function TemperatureDetailPanel({
+  currentTemperatures,
   regionalTemperature,
   lampposts,
   regionalWind,
 }: {
+  currentTemperatures: readonly PlaceValue<"C">[];
   regionalTemperature: WeatherSectionState<TemperatureReading[]>;
   lampposts: WeatherSectionState<LamppostReading[]>;
   regionalWind: WeatherSectionState<WindReading[]>;
@@ -324,14 +332,6 @@ export function TemperatureDetailPanel({
     [hiddenSensorSet, allItems],
   );
 
-  if (!regionalReadings && !lamppostReadings) {
-    return (
-      <p className={isLoading ? "temperature-loading" : "temperature-unavailable"}>
-        {isLoading ? "Loading temperatures..." : "Temperature data is unavailable"}
-      </p>
-    );
-  }
-
   const stationUpdateTime =
     regionalTemperature.status === "ready" || regionalTemperature.status === "stale"
       ? regionalTemperature.sourceUpdatedAt
@@ -343,21 +343,29 @@ export function TemperatureDetailPanel({
 
   return (
     <div className="temperature-detail-panel">
-      <TemperatureRegionGrid
-        items={activeItems}
-        regionOrder={regionOrder}
-        windByStation={windByStation}
-        heading={
-          <div className="rw-section-header">
-            <h3 className="rw-section-heading">Station &amp; Lamppost Temperature (past hour)</h3>
-          </div>
-        }
-        stationCount={countItems(activeItems, "station")}
-        stationUpdateTime={stationUpdateTime}
-        lamppostCount={countItems(activeItems, "lamppost")}
-        lamppostUpdateTime={lamppostUpdateTime}
-        onEdit={() => setEditorOpen(true)}
-      />
+      <TemperatureOverviewMap readings={currentTemperatures} />
+
+      {regionalReadings || lamppostReadings ? (
+        <TemperatureRegionGrid
+          items={activeItems}
+          regionOrder={regionOrder}
+          windByStation={windByStation}
+          heading={
+            <div className="rw-section-header">
+              <h3 className="rw-section-heading">Station &amp; Lamppost Temperature (past hour)</h3>
+            </div>
+          }
+          stationCount={countItems(activeItems, "station")}
+          stationUpdateTime={stationUpdateTime}
+          lamppostCount={countItems(activeItems, "lamppost")}
+          lamppostUpdateTime={lamppostUpdateTime}
+          onEdit={() => setEditorOpen(true)}
+        />
+      ) : (
+        <p className={isLoading ? "temperature-loading" : "temperature-unavailable"}>
+          {isLoading ? "Loading station temperatures..." : "Station temperature data is unavailable"}
+        </p>
+      )}
 
       {editorOpen && typeof document !== "undefined" && createPortal(
         <StationEditor

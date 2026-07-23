@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import xml.etree.ElementTree as ElementTree
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any
@@ -13,6 +12,7 @@ from .internal_feeds import (
     EARTH_WEATHER_CYCLE_DATASET,
     EARTH_WEATHER_MODELS,
     OCF_STATION_FORECAST_DATASET,
+    TROPICAL_CYCLONE_TRACK_AREA_DATASET,
     TROPICAL_CYCLONE_TRACK_DATASET,
     EarthWeatherCyclePayload,
     OcfStationForecastPayload,
@@ -59,6 +59,10 @@ from .storage_read import (
     read_latest_document,
     validate_stored_document,
 )
+from .tropical_cyclones import (
+    tropical_cyclone_geo_json,
+    tropical_cyclone_track_area_geo_json,
+)
 from .weather_read_common import (
     HONG_KONG,
     ReadDatabase,
@@ -89,90 +93,6 @@ from .weather_read_models import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _tropical_cyclone_geo_json(payload: bytes) -> dict[str, Any]:
-    try:
-        root = ElementTree.fromstring(payload)
-    except ElementTree.ParseError as error:
-        raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET) from error
-
-    features = []
-    for placemark in root.iter():
-        if placemark.tag.rpartition("}")[2] != "Placemark":
-            continue
-        properties: dict[str, Any] = {}
-        for child in placemark:
-            local_name = child.tag.rpartition("}")[2]
-            if local_name in {"name", "description"} and child.text:
-                properties[local_name] = child.text.strip()
-        for element in placemark.iter():
-            geometry_type = element.tag.rpartition("}")[2]
-            if geometry_type not in {"Point", "LineString", "LinearRing"}:
-                continue
-            coordinate_element = next(
-                (
-                    child
-                    for child in element.iter()
-                    if child.tag.rpartition("}")[2] == "coordinates" and child.text
-                ),
-                None,
-            )
-            if coordinate_element is None:
-                continue
-            try:
-                coordinates = [
-                    [float(item) for item in token.split(",")][:3]
-                    for token in coordinate_element.text.split()
-                ]
-                if any(len(item) < 2 for item in coordinates):
-                    raise ValueError("coordinate has too few values")
-            except ValueError as error:
-                raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET) from error
-            if not coordinates:
-                continue
-            geo_type = "Point" if geometry_type == "Point" else "LineString"
-            features.append(
-                {
-                    "type": "Feature",
-                    "properties": properties,
-                    "geometry": {
-                        "type": geo_type,
-                        "coordinates": (
-                            coordinates[0] if geo_type == "Point" else coordinates
-                        ),
-                    },
-                }
-            )
-    if not features:
-        for element in root.iter():
-            if element.tag.rpartition("}")[2] != "coordinates" or not element.text:
-                continue
-            try:
-                coordinates = [
-                    [float(item) for item in token.split(",")][:3]
-                    for token in element.text.split()
-                ]
-                if any(len(item) < 2 for item in coordinates):
-                    raise ValueError("coordinate has too few values")
-            except ValueError as error:
-                raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET) from error
-            if coordinates:
-                features.append(
-                    {
-                        "type": "Feature",
-                        "properties": {},
-                        "geometry": {
-                            "type": "Point" if len(coordinates) == 1 else "LineString",
-                            "coordinates": (
-                                coordinates[0] if len(coordinates) == 1 else coordinates
-                            ),
-                        },
-                    }
-                )
-    if not features:
-        raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET)
-    return {"type": "FeatureCollection", "features": features}
 
 
 @router.get("/current", response_model=DataResponse[dict[str, Any]])
@@ -246,17 +166,27 @@ _WARNING_CODE_PRIORITY: dict[str, int] = {
 
 _WARNING_TYPE_PRIORITY: dict[str, dict[str, int]] = {
     "WTCSGNL": {
-        "10": 0, "9": 1,
-        "8NE": 2, "8NW": 3, "8SE": 4, "8SW": 5,
-        "3": 6, "1": 7,
+        "10": 0,
+        "9": 1,
+        "8NE": 2,
+        "8NW": 3,
+        "8SE": 4,
+        "8SW": 5,
+        "3": 6,
+        "1": 7,
     },
     "WRAIN": {
-        "Black": 0, "Red": 1, "Amber": 2, "Yellow": 2,
+        "Black": 0,
+        "Red": 1,
+        "Amber": 2,
+        "Yellow": 2,
     },
     "WFIRE": {
-        "Red": 0, "Yellow": 1,
+        "Red": 0,
+        "Yellow": 1,
     },
 }
+
 
 def _warning_sort_key(item: tuple[str, Any]) -> tuple[int, int]:
     code = item[0]
@@ -518,9 +448,7 @@ async def get_sun(
     )
 
     try:
-        sun_row = next(
-            row for row in sun_rows if row[0].strip() == today
-        )
+        sun_row = next(row for row in sun_rows if row[0].strip() == today)
         moon_row = next(
             (row for row in moon_rows if row[0].strip() == today),
             None,
@@ -593,18 +521,14 @@ async def get_dashboard(
         _optional_dashboard_section(
             get_current_weather(section_responses[1], database)
         ),
-        _optional_dashboard_section(
-            get_local_forecast(section_responses[2], database)
-        ),
+        _optional_dashboard_section(get_local_forecast(section_responses[2], database)),
         _optional_dashboard_section(
             get_nine_day_forecast(section_responses[3], database)
         ),
         _optional_dashboard_section(
             get_regional_temperature(section_responses[4], database)
         ),
-        _optional_dashboard_section(
-            get_regional_wind(section_responses[5], database)
-        ),
+        _optional_dashboard_section(get_regional_wind(section_responses[5], database)),
         _optional_dashboard_section(get_lampposts(section_responses[6], database)),
         _optional_dashboard_section(get_sun(section_responses[7], database)),
         _optional_dashboard_section(
@@ -746,12 +670,34 @@ async def get_tropical_cyclones(
     response: Response,
     database: ReadDatabase,
 ) -> ListResponse[TropicalCyclone]:
-    cursor = (
+    track_cursor = (
         database["latest"]
         .find({"dataset": TROPICAL_CYCLONE_TRACK_DATASET}, LATEST_PROJECTION)
         .limit(20)
     )
-    raw_documents = await cursor.to_list(length=20)
+    area_cursor = (
+        database["latest"]
+        .find({"dataset": TROPICAL_CYCLONE_TRACK_AREA_DATASET}, LATEST_PROJECTION)
+        .limit(20)
+    )
+    raw_documents, raw_area_documents = await asyncio.gather(
+        track_cursor.to_list(length=20),
+        area_cursor.to_list(length=20),
+    )
+    areas: dict[str, StoredDocument] = {}
+    for area_document in raw_area_documents:
+        stored_area = validate_stored_document(
+            area_document,
+            TROPICAL_CYCLONE_TRACK_AREA_DATASET,
+        )
+        try:
+            area_storm_id = str(area_document["storm_id"])
+        except KeyError as error:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_AREA_DATASET) from error
+        if not area_storm_id:
+            raise StoredDataError(TROPICAL_CYCLONE_TRACK_AREA_DATASET)
+        areas[area_storm_id] = stored_area
+
     cyclones = []
     documents = []
     for document in raw_documents:
@@ -764,15 +710,24 @@ async def get_tropical_cyclones(
             raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET) from error
         if not storm_id or not name_en:
             raise StoredDataError(TROPICAL_CYCLONE_TRACK_DATASET)
+        area = areas.get(storm_id)
         cyclones.append(
             TropicalCyclone(
                 storm_id=storm_id,
                 name_en=name_en,
                 name_zh=name_zh,
-                geo_json=_tropical_cyclone_geo_json(stored.payload),
+                fetched_at=stored.fetched_at,
+                geo_json=tropical_cyclone_geo_json(stored.payload),
+                potential_track_area_geo_json=(
+                    tropical_cyclone_track_area_geo_json(area.payload)
+                    if area is not None
+                    else None
+                ),
             )
         )
         documents.append(stored)
+        if area is not None:
+            documents.append(area)
     cyclones.sort(key=lambda item: item.storm_id)
     set_latest_cache(response)
     return ListResponse(
