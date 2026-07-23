@@ -129,18 +129,7 @@ export function TyphoonTrackPage() {
             <p className="typhoon-page-state">
               The typhoon track is temporarily unavailable.
             </p>
-          ) : null}
-        </div>
-
-        {status === "ready" && selectedFrame ? (
-          <div className="typhoon-page-map">
-            <TyphoonTrackMap
-              geoJson={selectedFrame.geoJson}
-              potentialTrackAreaGeoJson={
-                selectedFrame.potentialTrackAreaGeoJson
-              }
-              key={selectedFrame.fetchedAt}
-            />
+          ) : selectedFrame ? (
             <section
               className="typhoon-timeline"
               aria-label="Archived track timeline"
@@ -190,6 +179,19 @@ export function TyphoonTrackPage() {
                 </button>
               </div>
             </section>
+          ) : null}
+        </div>
+
+        {status === "ready" && selectedFrame ? (
+          <div className="typhoon-page-map">
+            <TyphoonTrackMap
+              asOf={selectedFrame.fetchedAt}
+              geoJson={selectedFrame.geoJson}
+              potentialTrackAreaGeoJson={
+                selectedFrame.potentialTrackAreaGeoJson
+              }
+              key={selectedFrame.fetchedAt}
+            />
           </div>
         ) : null}
       </div>

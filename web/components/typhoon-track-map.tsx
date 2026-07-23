@@ -24,6 +24,12 @@ const MODEL_COLORS = [
   "#b94778",
 ] as const;
 
+const HONG_KONG_REFERENCE = {
+  longitude: 114.1694,
+  latitude: 22.3193,
+  outerLongitude: 114.65,
+} as const;
+
 interface MapView {
   longitude: number;
   latitude: number;
@@ -67,7 +73,10 @@ interface ProjectedTrackLine {
 }
 
 interface ProjectedTrackPoint {
+  forecastDateTime: string | null;
   id: string;
+  isForecast: boolean;
+  isCurrent: boolean;
   model: string;
   x: number;
   y: number;
@@ -313,10 +322,7 @@ function descriptionField(description: string, label: string) {
 function pointTooltip(properties: Record<string, unknown>) {
   const description =
     typeof properties.description === "string" ? properties.description : "";
-  const dateTime =
-    typeof properties.dateTime === "string"
-      ? properties.dateTime
-      : descriptionField(description, "Date and time");
+  const dateTime = pointDateTime(properties);
   const classification =
     typeof properties.classification === "string"
       ? properties.classification
@@ -328,15 +334,98 @@ function pointTooltip(properties: Record<string, unknown>) {
   return [dateTime, classification, wind].filter(Boolean).join(" · ");
 }
 
+function pointDateTime(properties: Record<string, unknown>) {
+  const description =
+    typeof properties.description === "string" ? properties.description : "";
+  return typeof properties.dateTime === "string"
+    ? properties.dateTime
+    : descriptionField(description, "Date and time");
+}
+
+function trackPointTime(
+  properties: Record<string, unknown>,
+  referenceTime: number,
+) {
+  const value = pointDateTime(properties);
+  if (!value) return null;
+
+  const fullHkoFormat = value.match(
+    /(\d{1,2}):(\d{2})\s*HKT\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i,
+  );
+  const months = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ];
+  if (fullHkoFormat) {
+    const month = months.indexOf(fullHkoFormat[4].toLowerCase());
+    if (month < 0) return null;
+    return Date.UTC(
+      Number(fullHkoFormat[5]),
+      month,
+      Number(fullHkoFormat[3]),
+      Number(fullHkoFormat[1]) - 8,
+      Number(fullHkoFormat[2]),
+    );
+  }
+
+  const compactHkoFormat = value.match(
+    /(\d{1,2})\s+([A-Za-z]+),?\s+(\d{1,2})(?::(\d{2}))?\s*HKT/i,
+  );
+  if (compactHkoFormat && Number.isFinite(referenceTime)) {
+    const abbreviatedMonth = compactHkoFormat[2].toLowerCase();
+    const month = months.findIndex((candidate) =>
+      candidate.startsWith(abbreviatedMonth),
+    );
+    if (month < 0) return null;
+
+    const reference = new Date(referenceTime + 8 * 60 * 60 * 1000);
+    const candidate = Date.UTC(
+      reference.getUTCFullYear(),
+      month,
+      Number(compactHkoFormat[1]),
+      Number(compactHkoFormat[3]) - 8,
+      Number(compactHkoFormat[4] ?? 0),
+    );
+    const halfYear = 183 * 24 * 60 * 60 * 1000;
+    if (candidate - referenceTime > halfYear) {
+      const previousYear = new Date(candidate);
+      previousYear.setUTCFullYear(previousYear.getUTCFullYear() - 1);
+      return previousYear.getTime();
+    }
+    if (referenceTime - candidate > halfYear) {
+      const nextYear = new Date(candidate);
+      nextYear.setUTCFullYear(nextYear.getUTCFullYear() + 1);
+      return nextYear.getTime();
+    }
+    return candidate;
+  }
+
+  const normalized = value.replace(/\bHKT\b/i, " GMT+0800");
+  const direct = Date.parse(normalized);
+  return Number.isFinite(direct) ? direct : null;
+}
+
 function modelColor(model: string, models: readonly string[]) {
   const index = Math.max(0, models.indexOf(model));
   return MODEL_COLORS[index % MODEL_COLORS.length];
 }
 
 export function TyphoonTrackMap({
+  asOf,
   geoJson,
   potentialTrackAreaGeoJson,
 }: {
+  asOf: string;
   geoJson: Record<string, unknown>;
   potentialTrackAreaGeoJson: Record<string, unknown> | null;
 }) {
@@ -348,6 +437,9 @@ export function TyphoonTrackMap({
   const fitted = useMemo(() => fitTrack(features, areas), [areas, features]);
   const [view, setView] = useState<MapView>(fitted.view);
   const [dragging, setDragging] = useState(false);
+  const [activeTooltipPointId, setActiveTooltipPointId] = useState<
+    string | null
+  >(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<DragState | null>(null);
   const pinchState = useRef<PinchState | null>(null);
@@ -405,8 +497,52 @@ export function TyphoonTrackMap({
         y: MAP.height / 2 + (point.y - center.y) * pixelsPerWorld,
       };
     };
+    const hongKongCenter = toScreen([
+      HONG_KONG_REFERENCE.longitude,
+      HONG_KONG_REFERENCE.latitude,
+    ]);
+    const hongKongOuterEdge = toScreen([
+      HONG_KONG_REFERENCE.outerLongitude,
+      HONG_KONG_REFERENCE.latitude,
+    ]);
+    const hongKongReference = {
+      ...hongKongCenter,
+      radius: Math.max(
+        5,
+        Math.abs(hongKongOuterEdge.x - hongKongCenter.x),
+      ),
+    };
     const lines: ProjectedTrackLine[] = [];
     const points: ProjectedTrackPoint[] = [];
+    const pointFeatures = features.filter(
+      (feature) => feature.geometry.type === "Point",
+    );
+    const asOfTime = Date.parse(asOf);
+    const nonForecastPoints = pointFeatures.filter((feature) => {
+      const searchableProperties = JSON.stringify(feature.properties);
+      return !/\bforecast/i.test(searchableProperties);
+    });
+    const currentPoint =
+      nonForecastPoints
+        .map((feature) => ({
+          feature,
+          time: trackPointTime(feature.properties, asOfTime),
+        }))
+        .filter(
+          (candidate): candidate is {
+            feature: TrackFeature;
+            time: number;
+          } =>
+            candidate.time !== null &&
+            (!Number.isFinite(asOfTime) ||
+              candidate.time <= asOfTime + 3 * 60 * 60 * 1000),
+        )
+        .sort((first, second) => second.time - first.time)[0]?.feature ??
+      nonForecastPoints.at(-1) ??
+      pointFeatures.at(-1);
+    const currentPointTime = currentPoint
+      ? trackPointTime(currentPoint.properties, asOfTime)
+      : null;
     const projectedAreas: ProjectedTrackArea[] = areas.map((area) => ({
       id: area.id,
       forecastPeriod: area.forecastPeriod,
@@ -435,19 +571,49 @@ export function TyphoonTrackMap({
         return;
       }
 
-      const tooltip = pointTooltip(feature.properties);
+      const pointDate = pointDateTime(feature.properties);
+      const pointTime = trackPointTime(feature.properties, asOfTime);
+      const explicitlyForecast = /\bforecast/i.test(
+        JSON.stringify(feature.properties),
+      );
+      const isForecast =
+        feature !== currentPoint &&
+        (explicitlyForecast ||
+          (pointTime !== null &&
+            currentPointTime !== null &&
+            pointTime > currentPointTime));
+      const details = pointTooltip(feature.properties);
+      const tooltip =
+        isForecast && pointDate
+          ? `Forecast position · ${pointDate}${details && details !== pointDate ? ` · ${details.replace(`${pointDate} · `, "")}` : ""}`
+          : details;
       if (!tooltip) return;
       const point = toScreen(feature.geometry.coordinates as number[]);
       points.push({
+        forecastDateTime: isForecast ? pointDate : null,
         id: feature.id,
+        isForecast,
+        isCurrent: feature === currentPoint,
         model: feature.model,
         x: point.x,
         y: point.y,
         tooltip,
       });
     });
-    return { areas: projectedAreas, lines, points };
-  }, [areas, features, view]);
+    return {
+      areas: projectedAreas,
+      hongKongReference,
+      lines,
+      points,
+    };
+  }, [areas, asOf, features, view]);
+  const activeForecastPoint =
+    projectedFeatures.points.find(
+      (point) =>
+        point.id === activeTooltipPointId &&
+        point.isForecast &&
+        point.forecastDateTime,
+    ) ?? null;
 
   function clampZoom(zoom: number) {
     return clamp(zoom, fitted.minZoom, fitted.maxZoom);
@@ -653,20 +819,92 @@ export function TyphoonTrackMap({
             ))}
           </g>
           <g className="typhoon-track-points">
-            {projectedFeatures.points.map((point) => (
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r="4.4"
-                fill={modelColor(point.model, models)}
-                aria-label={point.tooltip}
-                key={point.id}
-              >
-                <title>{point.tooltip}</title>
-              </circle>
-            ))}
+            {projectedFeatures.points.map((point) =>
+              point.isCurrent ? (
+                <g
+                  transform={`translate(${point.x} ${point.y})`}
+                  aria-label={`Current tropical cyclone position · ${point.tooltip}`}
+                  key={point.id}
+                >
+                  <g className="typhoon-current-symbol">
+                    <image
+                      href="/typhoon-current-position.svg"
+                      x="-14"
+                      y="-14"
+                      width="28"
+                      height="28"
+                    />
+                  </g>
+                  <title>{point.tooltip}</title>
+                </g>
+              ) : (
+                <circle
+                  data-forecast={point.isForecast ? "true" : undefined}
+                  cx={point.x}
+                  cy={point.y}
+                  r="4.4"
+                  fill={modelColor(point.model, models)}
+                  aria-label={
+                    point.forecastDateTime
+                      ? `Predicted tropical cyclone position for ${point.forecastDateTime}`
+                      : point.tooltip
+                  }
+                  tabIndex={point.isForecast ? 0 : undefined}
+                  key={point.id}
+                  onPointerEnter={() => {
+                    if (point.isForecast) setActiveTooltipPointId(point.id);
+                  }}
+                  onPointerLeave={() =>
+                    setActiveTooltipPointId((activeId) =>
+                      activeId === point.id ? null : activeId,
+                    )
+                  }
+                  onFocus={() => {
+                    if (point.isForecast) setActiveTooltipPointId(point.id);
+                  }}
+                  onBlur={() =>
+                    setActiveTooltipPointId((activeId) =>
+                      activeId === point.id ? null : activeId,
+                    )
+                  }
+                >
+                  {point.isForecast ? null : <title>{point.tooltip}</title>}
+                </circle>
+              ),
+            )}
+          </g>
+          <g className="typhoon-hong-kong-reference">
+            <circle
+              className="typhoon-hong-kong-reference-ring"
+              cx={projectedFeatures.hongKongReference.x}
+              cy={projectedFeatures.hongKongReference.y}
+              r={projectedFeatures.hongKongReference.radius}
+              aria-hidden="true"
+            />
+            <circle
+              className="typhoon-hong-kong-reference-point"
+              cx={projectedFeatures.hongKongReference.x}
+              cy={projectedFeatures.hongKongReference.y}
+              r="4.2"
+              aria-label="Hong Kong"
+            >
+              <title>Hong Kong</title>
+            </circle>
           </g>
         </svg>
+
+        {activeForecastPoint ? (
+          <div
+            className="typhoon-forecast-tooltip"
+            role="tooltip"
+            style={{
+              left: `${(activeForecastPoint.x / MAP.width) * 100}%`,
+              top: `${(activeForecastPoint.y / MAP.height) * 100}%`,
+            }}
+          >
+            {activeForecastPoint.tooltip}
+          </div>
+        ) : null}
 
         <div className="temperature-map-controls" aria-label="Map zoom controls">
           <button
