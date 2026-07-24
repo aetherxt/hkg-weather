@@ -157,6 +157,11 @@ Latest readers use short Vercel CDN caching with stale revalidation. Binary
 responses include `Content-Length` and `ETag`; timestamp-addressed payloads use
 one-year immutable caching.
 
+The typhoon page matches each selected cyclone snapshot to the newest archived
+ECMWF rainfall/wind pair at or before that snapshot. Rainfall is decoded and
+coloured beneath the official track; the matching U/V grid drives the animated
+wind particles.
+
 ## HKO ingestion routes
 
 All ingestion routes use `POST`, require
@@ -180,7 +185,7 @@ slot-addressed deduplication, depending on the dataset.
 | `/api/cron/smart-lampposts` | One latest and archived document per configured device |
 | `/api/cron/ocf-station-forecasts` | One latest and 3-day archived OCF forecast per configured station |
 | `/api/cron/earth-weather-cycles` | Latest cycle metadata for each configured Earth Weather model |
-| `/api/cron/earth-weather-rainfall` | Nearest future surface-rainfall raster for each rainfall-capable model plus the matching ECMWF surface `UV` wind raster, latest plus 3-day archives |
+| `/api/cron/earth-weather-rainfall` | Full configured forecast lead range for each rainfall-capable model plus matching ECMWF surface `UV` wind rasters, latest plus 3-day archives |
 | `/api/cron/radar-128` | Latest 128 km radar PNG and geographic bounds, with one archive entry per 30-minute slot |
 | `/api/cron/tropical-cyclones` | Current official tropical-cyclone track and Potential Track Area KML per active cyclone, latest plus 3-day archives |
 | `/api/cron/ingest-all` | Manually run every configured ingestion source and return a per-job result; do not schedule this route as a cron job |

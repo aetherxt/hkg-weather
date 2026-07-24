@@ -9,6 +9,15 @@ import {
   type PointerEvent,
 } from "react";
 
+import type { TyphoonModelFrame } from "@/components/typhoon-track-page";
+import {
+  decodeEarthWeatherRainfall,
+  decodeEarthWeatherWind,
+  sampleEarthWeatherVector,
+  type EarthWeatherScalarGrid,
+  type EarthWeatherVectorGrid,
+} from "@/lib/weather/earth-weather-raster";
+
 const MAP = {
   width: 700,
   height: 420,
@@ -105,6 +114,22 @@ interface ProjectedTrackArea {
   path: string;
 }
 
+interface DecodedModelFrame {
+  rainfall: EarthWeatherScalarGrid;
+  wind: EarthWeatherVectorGrid | null;
+}
+
+interface DecodedModelResult {
+  frame: DecodedModelFrame | null;
+  key: string;
+}
+
+interface WindParticle {
+  age: number;
+  x: number;
+  y: number;
+}
+
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -130,6 +155,87 @@ function unproject(x: number, y: number) {
     longitude: x * 360 - 180,
     latitude: (Math.atan(Math.sinh(mercatorY)) * 180) / Math.PI,
   };
+}
+
+function toScreen(view: MapView, longitude: number, latitude: number) {
+  const center = project(view.longitude, view.latitude);
+  const point = project(longitude, latitude);
+  const pixelsPerWorld = MAP.tileSize * 2 ** view.zoom;
+  return {
+    x: MAP.width / 2 + (point.x - center.x) * pixelsPerWorld,
+    y: MAP.height / 2 + (point.y - center.y) * pixelsPerWorld,
+  };
+}
+
+function fromScreen(view: MapView, x: number, y: number) {
+  const center = project(view.longitude, view.latitude);
+  const pixelsPerWorld = MAP.tileSize * 2 ** view.zoom;
+  return unproject(
+    center.x + (x - MAP.width / 2) / pixelsPerWorld,
+    center.y + (y - MAP.height / 2) / pixelsPerWorld,
+  );
+}
+
+const RAINFALL_GRADIENT = [
+  [0, [230, 230, 230]],
+  [0.5, [165, 247, 247]],
+  [2, [1, 255, 255]],
+  [5, [2, 214, 206]],
+  [10, [0, 189, 23]],
+  [20, [73, 214, 33]],
+  [30, [165, 231, 0]],
+  [40, [255, 222, 0]],
+  [50, [255, 173, 0]],
+  [70, [255, 99, 0]],
+  [100, [206, 49, 0]],
+] as const;
+
+const RAINFALL_SCALE_LABELS = [
+  { mm: 0, label: "0" },
+  { mm: 10, label: "10" },
+  { mm: 30, label: "30" },
+  { mm: 50, label: "50" },
+  { mm: 100, label: "100" },
+] as const;
+
+const RAINFALL_GRADIENT_CSS = RAINFALL_GRADIENT.map(
+  ([threshold, [r, g, b]]) => `rgb(${r},${g},${b}) ${(threshold / 100) * 100}%`,
+).join(", ");
+
+function rainfallColor(value: number) {
+  if (!Number.isFinite(value) || value < 0.2) return null;
+  const upperIndex = RAINFALL_GRADIENT.findIndex(
+    ([threshold]) => threshold >= value,
+  );
+  if (upperIndex <= 0) {
+    const [, color] =
+      upperIndex === 0
+        ? RAINFALL_GRADIENT[0]
+        : RAINFALL_GRADIENT.at(-1)!;
+    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.56)`;
+  }
+  const [lowerValue, lower] = RAINFALL_GRADIENT[upperIndex - 1];
+  const [upperValue, upper] = RAINFALL_GRADIENT[upperIndex];
+  const fraction = clamp(
+    (value - lowerValue) / (upperValue - lowerValue),
+    0,
+    1,
+  );
+  const color = lower.map((channel, index) =>
+    Math.round(channel + (upper[index] - channel) * fraction),
+  );
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.56)`;
+}
+
+function modelTimeLabel(value: string) {
+  return new Intl.DateTimeFormat("en-HK", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Hong_Kong",
+  }).format(new Date(value));
 }
 
 function isCoordinate(value: unknown): value is number[] {
@@ -448,12 +554,18 @@ export function TyphoonTrackMap({
   activeGeoJson,
   asOf,
   geoJson,
+  isFuture = false,
+  modelFrame,
+  modelStatus,
   potentialTrackAreaGeoJson,
 }: {
   activeAsOf: string;
   activeGeoJson: Record<string, unknown>;
   asOf: string;
   geoJson: Record<string, unknown>;
+  isFuture?: boolean;
+  modelFrame: TyphoonModelFrame | null;
+  modelStatus: "idle" | "loading" | "ready" | "unavailable";
   potentialTrackAreaGeoJson: Record<string, unknown> | null;
 }) {
   const snapshotFeatures = useMemo(() => trackFeatures(geoJson), [geoJson]);
@@ -489,7 +601,11 @@ export function TyphoonTrackMap({
   const [activeTooltipPointId, setActiveTooltipPointId] = useState<
     string | null
   >(null);
+  const [decodedModelResult, setDecodedModelResult] =
+    useState<DecodedModelResult | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const rainfallCanvasRef = useRef<HTMLCanvasElement>(null);
+  const windCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<DragState | null>(null);
   const pinchState = useRef<PinchState | null>(null);
   const pointers = useRef(new Map<number, PointerPosition>());
@@ -498,6 +614,258 @@ export function TyphoonTrackMap({
     () => Array.from(new Set(features.map((feature) => feature.model))),
     [features],
   );
+
+  useEffect(() => {
+    if (!modelFrame) return;
+    const controller = new AbortController();
+    const frameKey = [
+      modelFrame.validAt,
+      modelFrame.rainfall.imageUrl,
+      modelFrame.wind?.imageUrl ?? "",
+    ].join("|");
+    void Promise.all([
+      decodeEarthWeatherRainfall(
+        modelFrame.rainfall.imageUrl,
+        controller.signal,
+      ),
+      modelFrame.wind
+        ? decodeEarthWeatherWind(modelFrame.wind.imageUrl, controller.signal)
+        : Promise.resolve(null),
+    ])
+      .then(([rainfall, wind]) => {
+        if (controller.signal.aborted) return;
+        const boundsMatch =
+          wind === null ||
+          (
+            Math.abs(rainfall.header.north - wind.header.north) < 0.001 &&
+            Math.abs(rainfall.header.south - wind.header.south) < 0.001 &&
+            Math.abs(rainfall.header.east - wind.header.east) < 0.001 &&
+            Math.abs(rainfall.header.west - wind.header.west) < 0.001
+          );
+        if (!boundsMatch) {
+          throw new Error("ECMWF rainfall and wind domains do not match");
+        }
+        setDecodedModelResult({
+          frame: { rainfall, wind },
+          key: frameKey,
+        });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setDecodedModelResult({ frame: null, key: frameKey });
+        }
+      });
+    return () => controller.abort();
+  }, [modelFrame, modelStatus]);
+
+  const modelFrameKey = modelFrame
+    ? [
+        modelFrame.validAt,
+        modelFrame.rainfall.imageUrl,
+        modelFrame.wind?.imageUrl ?? "",
+      ].join("|")
+    : null;
+  const currentDecodedModel =
+    modelFrameKey && decodedModelResult?.key === modelFrameKey
+      ? decodedModelResult
+      : null;
+  const decodedModelFrame = currentDecodedModel?.frame ?? null;
+  const decodeStatus: "idle" | "loading" | "ready" | "unavailable" =
+    !modelFrame
+      ? modelStatus
+      : !currentDecodedModel
+        ? "loading"
+        : currentDecodedModel.frame
+          ? "ready"
+          : "unavailable";
+
+  useEffect(() => {
+    const canvas = rainfallCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, MAP.width, MAP.height);
+    const grid = decodedModelFrame?.rainfall;
+    if (!grid) return;
+
+    const { header, values } = grid;
+    const columns = Array.from({ length: header.width + 1 }, (_, column) =>
+      toScreen(
+        view,
+        header.west + (column - 0.5) * header.longitudeStep,
+        view.latitude,
+      ).x,
+    );
+    const rows = Array.from({ length: header.height + 1 }, (_, row) =>
+      toScreen(
+        view,
+        view.longitude,
+        header.north - (row - 0.5) * header.latitudeStep,
+      ).y,
+    );
+    const colors = new Map<number, string | null>();
+    for (let row = 0; row < header.height; row += 1) {
+      const top = Math.min(rows[row], rows[row + 1]);
+      const bottom = Math.max(rows[row], rows[row + 1]);
+      if (bottom < 0 || top > MAP.height) continue;
+      for (let column = 0; column < header.width; column += 1) {
+        const left = Math.min(columns[column], columns[column + 1]);
+        const right = Math.max(columns[column], columns[column + 1]);
+        if (right < 0 || left > MAP.width) continue;
+        const value = values[row * header.width + column];
+        const colorKey = Math.round(value * 2);
+        let color = colors.get(colorKey);
+        if (color === undefined) {
+          color = rainfallColor(colorKey / 2);
+          colors.set(colorKey, color);
+        }
+        if (!color) continue;
+        context.fillStyle = color;
+        context.fillRect(
+          Math.floor(left),
+          Math.floor(top),
+          Math.max(1, Math.ceil(right - left) + 1),
+          Math.max(1, Math.ceil(bottom - top) + 1),
+        );
+      }
+    }
+  }, [decodedModelFrame, view]);
+
+  useEffect(() => {
+    const canvas = windCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    const grid = decodedModelFrame?.wind;
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, MAP.width, MAP.height);
+    if (!grid) return;
+
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const drawStaticVectors = () => {
+      context.strokeStyle = "rgba(255, 255, 255, 0.82)";
+      context.lineWidth = 1.15;
+      context.shadowColor = "rgba(12, 34, 48, 0.38)";
+      context.shadowBlur = 2;
+      for (let y = 18; y < MAP.height; y += 28) {
+        for (let x = 18; x < MAP.width; x += 28) {
+          const location = fromScreen(view, x, y);
+          const vector = sampleEarthWeatherVector(
+            grid,
+            location.longitude,
+            location.latitude,
+          );
+          if (!vector) continue;
+          const speed = Math.hypot(vector[0], vector[1]);
+          if (speed < 0.2) continue;
+          const length = clamp(speed * 0.38, 2.5, 9);
+          context.beginPath();
+          context.moveTo(x, y);
+          context.lineTo(
+            x + vector[0] / speed * length,
+            y - vector[1] / speed * length,
+          );
+          context.stroke();
+        }
+      }
+      context.shadowBlur = 0;
+    };
+    if (reducedMotion) {
+      drawStaticVectors();
+      return;
+    }
+
+    const particles: WindParticle[] = [];
+    const maximumAge = 65;
+    const resetParticle = (particle: WindParticle) => {
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        particle.x = Math.random() * MAP.width;
+        particle.y = Math.random() * MAP.height;
+        const location = fromScreen(view, particle.x, particle.y);
+        if (
+          sampleEarthWeatherVector(
+            grid,
+            location.longitude,
+            location.latitude,
+          )
+        ) {
+          particle.age = Math.floor(Math.random() * maximumAge);
+          return;
+        }
+      }
+      particle.age = maximumAge;
+    };
+    for (let index = 0; index < 210; index += 1) {
+      const particle = { age: maximumAge, x: 0, y: 0 };
+      resetParticle(particle);
+      particles.push(particle);
+    }
+
+    let animationFrame = 0;
+    let previousTimestamp = 0;
+    const animate = (timestamp: number) => {
+      animationFrame = requestAnimationFrame(animate);
+      if (timestamp - previousTimestamp < 32) return;
+      previousTimestamp = timestamp;
+      context.globalCompositeOperation = "destination-out";
+      context.fillStyle = "rgba(0, 0, 0, 0.12)";
+      context.fillRect(0, 0, MAP.width, MAP.height);
+      context.globalCompositeOperation = "source-over";
+      context.strokeStyle = "rgba(255, 255, 255, 0.78)";
+      context.lineWidth = 1.15;
+      context.shadowColor = "rgba(12, 34, 48, 0.42)";
+      context.shadowBlur = 1.5;
+      const secondsPerFrame = 1_800 / 2 ** Math.max(0, view.zoom - 5);
+
+      particles.forEach((particle) => {
+        if (particle.age >= maximumAge) {
+          resetParticle(particle);
+          return;
+        }
+        const location = fromScreen(view, particle.x, particle.y);
+        const vector = sampleEarthWeatherVector(
+          grid,
+          location.longitude,
+          location.latitude,
+        );
+        if (!vector) {
+          particle.age = maximumAge;
+          return;
+        }
+        const cosine = Math.max(
+          0.15,
+          Math.cos(location.latitude * Math.PI / 180),
+        );
+        const destination = toScreen(
+          view,
+          location.longitude +
+            vector[0] * secondsPerFrame / (111_320 * cosine),
+          location.latitude + vector[1] * secondsPerFrame / 111_320,
+        );
+        if (
+          destination.x < 0 ||
+          destination.x > MAP.width ||
+          destination.y < 0 ||
+          destination.y > MAP.height
+        ) {
+          particle.age = maximumAge;
+          return;
+        }
+        context.beginPath();
+        context.moveTo(particle.x, particle.y);
+        context.lineTo(destination.x, destination.y);
+        context.stroke();
+        particle.x = destination.x;
+        particle.y = destination.y;
+        particle.age += 1;
+      });
+      context.shadowBlur = 0;
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      context.clearRect(0, 0, MAP.width, MAP.height);
+    };
+  }, [decodedModelFrame, view]);
 
   const mapGeometry = useMemo(() => {
     const tileZoom = Math.floor(view.zoom);
@@ -667,7 +1035,7 @@ export function TyphoonTrackMap({
         id: feature.id,
         isForecast,
         isCurrent:
-          feature.source === "active" && feature === currentPoints.active,
+          feature === (currentPoints.snapshot ?? currentPoints.active),
         model: feature.model,
         source: feature.source,
         x: point.x,
@@ -677,12 +1045,12 @@ export function TyphoonTrackMap({
     });
     return {
       areas: projectedAreas,
-      hasSnapshot: features.some((feature) => feature.source === "snapshot"),
+      hasSnapshot: features.some((feature) => feature.source === "snapshot") || isFuture,
       hongKongReference,
       lines,
       points,
     };
-  }, [activeAsOf, areas, asOf, features, view]);
+  }, [activeAsOf, areas, asOf, features, isFuture, view]);
   const activeForecastPoint =
     projectedFeatures.points.find(
       (point) =>
@@ -856,7 +1224,7 @@ export function TyphoonTrackMap({
           <g aria-hidden="true">
             {mapGeometry.tiles.map((tile) => (
               <image
-                className="temperature-map-tile"
+                className="typhoon-map-tile"
                 href={`https://a.basemaps.cartocdn.com/light_nolabels/${mapGeometry.tileZoom}/${tile.x}/${tile.y}@2x.png`}
                 x={tile.screenX}
                 y={tile.screenY}
@@ -872,6 +1240,20 @@ export function TyphoonTrackMap({
             height={MAP.height}
             aria-hidden="true"
           />
+          <foreignObject
+            className="typhoon-model-rainfall-layer"
+            x="0"
+            y="0"
+            width={MAP.width}
+            height={MAP.height}
+            aria-hidden="true"
+          >
+            <canvas
+              ref={rainfallCanvasRef}
+              width={MAP.width}
+              height={MAP.height}
+            />
+          </foreignObject>
           <g className="typhoon-track-areas" aria-hidden="true">
             {projectedFeatures.areas.map((area) => (
               <path
@@ -885,6 +1267,16 @@ export function TyphoonTrackMap({
               />
             ))}
           </g>
+          <foreignObject
+            className="typhoon-model-wind-layer"
+            x="0"
+            y="0"
+            width={MAP.width}
+            height={MAP.height}
+            aria-hidden="true"
+          >
+            <canvas ref={windCanvasRef} width={MAP.width} height={MAP.height} />
+          </foreignObject>
           <g
             className="typhoon-track-lines"
             data-has-snapshot={
@@ -1051,11 +1443,42 @@ export function TyphoonTrackMap({
         </div>
 
         <div className="typhoon-track-legend" aria-label="Track versions">
-          {projectedFeatures.hasSnapshot ? (
-            <span>
-              <i className="typhoon-track-snapshot-key" />
-              Snapshot
+          {decodeStatus === "ready" && modelFrame ? (
+            <>
+              <span title={`${modelTimeLabel(modelFrame.validAt)} HKT`}>
+                <i className="typhoon-model-rainfall-key" />
+                ECMWF Rain
+              </span>
+              {decodedModelFrame?.wind ? (
+                <span title={`${modelTimeLabel(modelFrame.validAt)} HKT`}>
+                  <i className="typhoon-model-wind-key" />
+                  ECMWF Wind
+                </span>
+              ) : null}
+              <span className="typhoon-model-time">
+                {modelTimeLabel(modelFrame.validAt)}
+              </span>
+            </>
+          ) : decodeStatus === "loading" || modelStatus === "loading" ? (
+            <span className="typhoon-model-status">Loading ECMWF layers…</span>
+          ) : decodeStatus === "unavailable" ||
+            modelStatus === "unavailable" ? (
+            <span className="typhoon-model-status">
+              No matching ECMWF frame
             </span>
+          ) : null}
+          {projectedFeatures.hasSnapshot ? (
+            isFuture ? (
+              <span>
+                <i className="typhoon-track-future-key" />
+                Future prediction
+              </span>
+            ) : (
+              <span>
+                <i className="typhoon-track-snapshot-key" />
+                Snapshot
+              </span>
+            )
           ) : null}
           <span>
             <i className="typhoon-track-newest-key" />
@@ -1077,6 +1500,18 @@ export function TyphoonTrackMap({
               ) : null}
             </>
           ) : null}
+        </div>
+
+        <div className="typhoon-rainfall-scale" role="img" aria-label="Rainfall scale in millimetres per hour">
+          <span className="typhoon-rainfall-scale-bar" style={{ background: `linear-gradient(to right, ${RAINFALL_GRADIENT_CSS})` }} />
+          <span className="typhoon-rainfall-scale-labels">
+            {RAINFALL_SCALE_LABELS.map(({ mm, label }) => (
+              <span key={mm} className="typhoon-rainfall-scale-label">
+                {label}
+              </span>
+            ))}
+            <span className="typhoon-rainfall-scale-unit">mm/h</span>
+          </span>
         </div>
 
         <p className="temperature-map-attribution">

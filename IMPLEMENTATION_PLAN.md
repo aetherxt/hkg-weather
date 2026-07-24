@@ -170,7 +170,7 @@ Viewer: <https://maps.weather.gov.hk/wxviewer/index.html?lang=en>
 
 These are internal viewer assets rather than versioned public APIs.
 
-Earth Weather encoded model assets will be retained only as raw upstream inputs where required. This includes the ECMWF surface `UV` raster used for wind particles. Model colours and interactive weather layers will be generated in the browser rather than stored as finished map images.
+Earth Weather encoded model assets will be retained only as raw upstream inputs where required. This includes the ECMWF surface `UV` raster used for wind particles. Model colours and interactive weather layers will be generated in the browser rather than stored as finished map images. The typhoon page selects the newest paired ECMWF rainfall and wind frame whose valid time is not later than the selected cyclone snapshot, renders rainfall below the official track and animates decoded wind vectors above the rainfall.
 
 ### 2.4 HKO radar and tropical-cyclone feeds
 
@@ -243,22 +243,24 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | OCF nine-day station forecasts | Raw JSON response per configured station | Save each new model time; also maintain latest per station | 3 days |
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
-| Earth Weather rainfall | Original encoded surface `RF` PNG for the nearest future valid time, with model, cycle, lead time, valid time and raster dimensions | Maintain one latest frame per rainfall-capable model and archive each changed prediction; defer geographic cropping until the internal raster geometry is decoded reliably | 3 days |
-| ECMWF wind vectors | Original encoded surface `UV` PNG for the same cycle, lead time and valid time selected by the Earth Weather rainfall job; store encoded and vector-grid dimensions plus component/unit metadata | Maintain one latest ECMWF frame and archive each changed prediction; decode and animate particles in the browser | 3 days |
+| Earth Weather rainfall | Original encoded surface `RF` PNG for every configured future lead, with model, cycle, lead time, valid time and raster dimensions | Maintain one latest frame per rainfall-capable model and archive each changed prediction across the configured 120-hour (5-day) lead range; defer geographic cropping until the internal raster geometry is decoded reliably | 3 days |
+| ECMWF wind vectors | Original encoded surface `UV` PNG for every ECMWF rainfall lead; store encoded and vector-grid dimensions plus component/unit metadata | Maintain one latest ECMWF frame and archive each changed prediction across the configured 120-hour (5-day) lead range; decode and animate particles in the browser | 3 days |
 | Other Earth Weather fields | None by default | Fetch on demand unless later added to the storage plan | Not stored |
 | 128 km radar | Original PNG plus bounds and observation time from KML | Maintain latest and archive one image every 30 minutes | Latest plus 3-day archive |
 | Current tropical-cyclone track | Raw XML | Save each changed track while a cyclone product exists; also maintain latest | 3 days |
 | Tropical-cyclone Potential Track Area | Raw KML per active cyclone; expose only the two filled HKO cone polygons as GeoJSON and ignore auxiliary circle outlines | Fetch with the existing tropical-cyclone job, save each changed area and maintain latest while available | 3 days |
 | Tropical-cyclone best track | Raw official data used when available for comparison | Fetch on demand or maintain the latest published file | Latest only |
 
-### 3.4 Rainfall archive size
+### 3.4 Weather-model and radar archive size
 
-- Each 30-minute archive snapshot keeps the first two forecast grids, covering the forecast available for the following 60 minutes.
-- One 128 km radar PNG is archived at the same 30-minute cadence for visual comparison.
-- Station rainfall observations are the numerical verification source; radar is used for visual comparison.
+- Each Earth-Weather model is queried at most 120 lead hours (5 days) into the future.
+- ECMWF (`ec`) forecasts are produced every 3 hours; AIFS, Fengwu and Fuxi every 6 hours; AAMC every 3 hours.
+- Every ECMWF rainfall frame is accompanied by a wind-vector PNG (~130 KB on average) stored alongside it.
+- One 128 km radar PNG is archived every 30 minutes for visual comparison.
 - The three-day uncompressed rainfall-forecast archive is approximately 194 MB.
+- The three-day wind-vector archive adds approximately 10 MB.
 - The three-day radar archive is approximately 10 MB.
-- Rainfall forecast, radar, metadata and indexes are expected to use approximately 215–225 MB before the other stored datasets are included.
+- Weather-model data, radar, metadata and indexes are expected to use approximately 225–235 MB before the other stored datasets are included.
 - Keep total Atlas storage below approximately 400 MB to leave headroom under the 512 MB free-cluster limit.
 
 ## 4. Project file structure

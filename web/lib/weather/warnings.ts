@@ -8,8 +8,8 @@ export function warningDisplayName(warning: WarningSummaryItem): string {
     return `${t} Rainstorm`;
   }
 
-  if (code === "WTCSGNL" && t) {
-    return `T${t} Tropical Cyclone`;
+  if (code.startsWith("TC") && code.length > 2) {
+    return `T${code.slice(2)} Tropical Cyclone`;
   }
 
   if (code === "WFIRE" && t) {

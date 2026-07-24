@@ -1,4 +1,6 @@
 import type {
+  ArchivedModelRainfall,
+  ArchivedModelWind,
   ArchivedTropicalCyclone,
   AstronomicalTimes,
   CurrentWeather,
@@ -281,6 +283,28 @@ export function createWeatherClient(options: WeatherClientOptions = {}) {
     ) =>
       list<ArchivedTropicalCyclone>(
         `/history/tropical-cyclones/${encodeURIComponent(stormId)}` +
+          `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        init,
+      ),
+    getModelRainfallHistory: (
+      modelId: string,
+      from: string,
+      to: string,
+      init?: RequestInit,
+    ) =>
+      list<ArchivedModelRainfall>(
+        `/history/models/${encodeURIComponent(modelId)}/rainfall` +
+          `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        init,
+      ),
+    getModelWindHistory: (
+      modelId: string,
+      from: string,
+      to: string,
+      init?: RequestInit,
+    ) =>
+      list<ArchivedModelWind>(
+        `/history/models/${encodeURIComponent(modelId)}/wind` +
           `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
         init,
       ),

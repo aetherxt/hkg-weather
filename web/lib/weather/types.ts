@@ -96,6 +96,28 @@ export interface RadarMetadata {
   imageUrl: string;
 }
 
+export interface ArchivedModelRainfall {
+  cycle: IsoDateTime;
+  validAt: IsoDateTime;
+  leadHours: number;
+  width: number;
+  height: number;
+  imageUrl: string;
+}
+
+export interface ArchivedModelWind {
+  cycle: IsoDateTime;
+  validAt: IsoDateTime;
+  leadHours: number;
+  level: string;
+  encodedWidth: number;
+  encodedHeight: number;
+  headerRows: number;
+  gridWidth: number;
+  gridHeight: number;
+  imageUrl: string;
+}
+
 export interface TropicalCyclone {
   stormId: string;
   nameEn: string;

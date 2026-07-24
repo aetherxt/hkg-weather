@@ -179,25 +179,25 @@ EARTH_WEATHER_MODELS = (
         model_id="ec",
         label="ECMWF",
         rainfall_interval_hours=3,
-        maximum_lead_hours=360,
+        maximum_lead_hours=120,
     ),
     EarthWeatherModel(
         model_id="aifs",
         label="ECMWF-AIFS",
         rainfall_interval_hours=6,
-        maximum_lead_hours=360,
+        maximum_lead_hours=120,
     ),
     EarthWeatherModel(
         model_id="fengwu_ec",
         label="Fengwu",
         rainfall_interval_hours=6,
-        maximum_lead_hours=360,
+        maximum_lead_hours=120,
     ),
     EarthWeatherModel(
         model_id="fuxi_ec",
         label="Fuxi",
         rainfall_interval_hours=6,
-        maximum_lead_hours=360,
+        maximum_lead_hours=120,
     ),
     EarthWeatherModel(model_id="pangu_ec", label="Pangu"),
     EarthWeatherModel(
@@ -278,6 +278,14 @@ def earth_rainfall_lead_hours(
     interval_seconds = interval * 60 * 60
     next_lead = ((elapsed_seconds // interval_seconds) + 1) * interval
     return min(maximum, next_lead)
+
+
+def earth_rainfall_leads(model: EarthWeatherModel) -> range:
+    interval = model.rainfall_interval_hours
+    maximum = model.maximum_lead_hours
+    if interval is None or maximum is None:
+        raise ValueError(f"{model.model_id} has no rainfall product")
+    return range(interval, maximum + 1, interval)
 
 
 def earth_weather_rainfall_spec(
@@ -699,28 +707,24 @@ async def ingest_earth_weather_rainfall(
             base_time = earth_cycle_source_updated_at(cycle)
         except ValueError as error:
             raise DatasetUpstreamError(EARTH_WEATHER_CYCLE_DATASET) from error
-        lead_hours = earth_rainfall_lead_hours(
-            model,
-            base_time,
-            current_time,
-        )
-        spec = earth_weather_rainfall_spec(model, base_time, lead_hours)
-        result = await ingest_raw_dataset(
-            database,
-            client,
-            spec,
-            now=current_time,
-        )
-        results.append(ingestion_status(spec.document_id, result))
-        if model in EARTH_WEATHER_WIND_MODELS:
-            wind_spec = earth_weather_wind_spec(model, base_time, lead_hours)
-            wind_result = await ingest_raw_dataset(
+        for lead_hours in earth_rainfall_leads(model):
+            spec = earth_weather_rainfall_spec(model, base_time, lead_hours)
+            result = await ingest_raw_dataset(
                 database,
                 client,
-                wind_spec,
+                spec,
                 now=current_time,
             )
-            results.append(ingestion_status(wind_spec.document_id, wind_result))
+            results.append(ingestion_status(spec.document_id, result))
+            if model in EARTH_WEATHER_WIND_MODELS:
+                wind_spec = earth_weather_wind_spec(model, base_time, lead_hours)
+                wind_result = await ingest_raw_dataset(
+                    database,
+                    client,
+                    wind_spec,
+                    now=current_time,
+                )
+                results.append(ingestion_status(wind_spec.document_id, wind_result))
     return results
 
 

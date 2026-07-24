@@ -161,6 +161,38 @@ test("tropical cyclone history reader bounds the requested archive range", async
   );
 });
 
+test("ECMWF history readers request the same bounded model window", async () => {
+  const requestedUrls: string[] = [];
+  const client = createWeatherClient({
+    fetch: async (input) => {
+      requestedUrls.push(input.toString());
+      return Response.json({
+        data: [],
+        meta: {
+          dataset: "earth_weather_model",
+          sourceUpdatedAt: null,
+          fetchedAt: null,
+          count: 0,
+        },
+      });
+    },
+  });
+  const from = "2026-07-20T06:00:00.000Z";
+  const to = "2026-07-23T06:00:00.000Z";
+
+  await Promise.all([
+    client.getModelRainfallHistory("ec", from, to),
+    client.getModelWindHistory("ec", from, to),
+  ]);
+
+  assert.deepEqual(requestedUrls.sort(), [
+    "/api/weather/history/models/ec/rainfall" +
+      "?from=2026-07-20T06%3A00%3A00.000Z&to=2026-07-23T06%3A00%3A00.000Z",
+    "/api/weather/history/models/ec/wind" +
+      "?from=2026-07-20T06%3A00%3A00.000Z&to=2026-07-23T06%3A00%3A00.000Z",
+  ]);
+});
+
 test("lamppost list reader returns structured device readings", async () => {
   const client = createWeatherClient({
     fetch: fixtureFetch({

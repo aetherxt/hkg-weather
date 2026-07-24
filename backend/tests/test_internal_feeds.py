@@ -15,6 +15,7 @@ from app.internal_feeds import (
     OcfStationForecastPayload,
     earth_cycle_source_updated_at,
     earth_rainfall_lead_hours,
+    earth_rainfall_leads,
     earth_weather_cycle_spec,
     earth_weather_rainfall_spec,
     earth_weather_wind_spec,
@@ -200,6 +201,15 @@ def test_earth_weather_rainfall_spec_uses_latest_available_frame() -> None:
     assert spec.archive_retention is not None
 
 
+def test_earth_weather_rainfall_leads_cover_the_configured_forecast() -> None:
+    assert list(earth_rainfall_leads(EARTH_WEATHER_RAINFALL_MODELS[0])) == list(
+        range(3, 121, 3)
+    )
+    assert list(earth_rainfall_leads(EARTH_WEATHER_RAINFALL_MODELS[1])) == list(
+        range(6, 121, 6)
+    )
+
+
 def test_earth_weather_wind_spec_uses_ecmwf_surface_uv_frame() -> None:
     model = EARTH_WEATHER_WIND_MODELS[0]
     base_time = datetime(2026, 7, 17, tzinfo=UTC)
@@ -270,12 +280,23 @@ def test_earth_weather_rainfall_ingestion_also_stores_ecmwf_wind(
         )
     )
 
-    assert [result.dataset for result in results] == [
-        "earth_weather_rainfall:ec",
-        "earth_weather_wind:ec",
-    ]
-    assert ingest.await_args_list[0].args[2].url.endswith("_sfc_RF.png")
-    assert ingest.await_args_list[1].args[2].url.endswith("_sfc_UV.png")
+    assert len(results) == 80
+    assert sum(
+        result.dataset == "earth_weather_rainfall:ec" for result in results
+    ) == 40
+    assert sum(result.dataset == "earth_weather_wind:ec" for result in results) == 40
+    assert ingest.await_args_list[0].args[2].url.endswith(
+        "_2026071703_f003_sfc_RF.png"
+    )
+    assert ingest.await_args_list[1].args[2].url.endswith(
+        "_2026071703_f003_sfc_UV.png"
+    )
+    assert ingest.await_args_list[-2].args[2].url.endswith(
+        "_2026072200_f120_sfc_RF.png"
+    )
+    assert ingest.await_args_list[-1].args[2].url.endswith(
+        "_2026072200_f120_sfc_UV.png"
+    )
 
 
 def test_png_validation_returns_dimensions_and_metadata() -> None:

@@ -1,13 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { TyphoonTrackMap } from "@/components/typhoon-track-map";
 import { weatherClient } from "@/lib/weather/client";
 import type {
+  ArchivedModelRainfall,
+  ArchivedModelWind,
   ArchivedTropicalCyclone,
   TropicalCyclone,
 } from "@/lib/weather/types";
+
+export interface TyphoonModelFrame {
+  validAt: string;
+  rainfall: ArchivedModelRainfall;
+  wind: ArchivedModelWind | null;
+}
+
+interface TyphoonModelResult {
+  frame: TyphoonModelFrame | null;
+  snapshotTime: string;
+}
+
+const FORECAST_INTERVAL_HOURS = 3;
 
 function formatSnapshotTime(value: string) {
   return new Intl.DateTimeFormat("en-HK", {
@@ -45,13 +60,125 @@ function uniqueFrames(frames: ArchivedTropicalCyclone[]) {
   );
 }
 
+const FORECAST_MONTHS = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+function parseHkoDate(value: string): number | null {
+  const full = value.match(
+    /(\d{1,2}):(\d{2})\s*HKT\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i,
+  );
+  if (full) {
+    const month = FORECAST_MONTHS.indexOf(full[4].toLowerCase());
+    if (month < 0) return null;
+    return Date.UTC(
+      Number(full[5]), month, Number(full[3]),
+      Number(full[1]) - 8, Number(full[2]),
+    );
+  }
+  const compact = value.match(
+    /(\d{1,2})\s+([A-Za-z]+),?\s+(\d{1,2})(?::(\d{2}))?\s*HKT/i,
+  );
+  if (compact) {
+    const month = FORECAST_MONTHS.findIndex((c) =>
+      c.startsWith(compact[2].toLowerCase()),
+    );
+    if (month < 0) return null;
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const candidate = Date.UTC(year, month, Number(compact[1]));
+    if (candidate > Date.UTC(year, now.getUTCMonth(), now.getUTCDate() + 60))
+      return null;
+    return Date.UTC(
+      year, month, Number(compact[1]),
+      Number(compact[3]) - 8, compact[4] ? Number(compact[4]) : 0,
+    );
+  }
+  return null;
+}
+
+function extractFeatureTime(feature: Record<string, unknown>): number | null {
+  const properties =
+    typeof feature.properties === "object" && feature.properties !== null
+      ? feature.properties as Record<string, unknown>
+      : {};
+  const raw =
+    typeof properties.dateTime === "string"
+      ? properties.dateTime
+      : typeof properties.description === "string"
+        ? (() => {
+            const escaped = "Date and time".replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const m = properties.description.match(
+              new RegExp(`${escaped}<\\/th>\\s*<td[^>]*>([\\s\\S]*?)<\\/td>`, "i"),
+            );
+            return m?.[1]?.replace(/<[^>]+>/g, "").replace(/&amp;/gi, "&").trim() ?? null;
+          })()
+        : null;
+  return typeof raw === "string" ? parseHkoDate(raw) : null;
+}
+
+function findLastForecastTimeMs(geoJson: Record<string, unknown>): number | null {
+  if (!Array.isArray(geoJson.features)) return null;
+  let latest: number | null = null;
+  for (const feature of geoJson.features) {
+    if (typeof feature !== "object" || feature === null) continue;
+    const geometry = (feature as Record<string, unknown>).geometry;
+    if (typeof geometry !== "object" || geometry === null) continue;
+    if ((geometry as Record<string, unknown>).type !== "Point") continue;
+    const parsed = extractFeatureTime(feature as Record<string, unknown>);
+    if (parsed !== null && (latest === null || parsed > latest)) {
+      latest = parsed;
+    }
+  }
+  return latest;
+}
+
+function generateFutureSlots(
+  fromTime: string,
+  toTimeMs: number,
+  template: ArchivedTropicalCyclone,
+): ArchivedTropicalCyclone[] {
+  const slots: ArchivedTropicalCyclone[] = [];
+  const fromMs = Date.parse(fromTime);
+  const intervalMs = FORECAST_INTERVAL_HOURS * 60 * 60 * 1000;
+  let currentMs = Math.ceil(fromMs / intervalMs) * intervalMs;
+  while (currentMs <= toTimeMs) {
+    slots.push({
+      stormId: template.stormId,
+      nameEn: template.nameEn,
+      nameZh: template.nameZh,
+      fetchedAt: new Date(currentMs).toISOString(),
+      geoJson: template.geoJson,
+      potentialTrackAreaGeoJson: template.potentialTrackAreaGeoJson,
+    });
+    currentMs += intervalMs;
+  }
+  return slots;
+}
+
 export function TyphoonTrackPage() {
   const [cyclone, setCyclone] = useState<TropicalCyclone | null>(null);
   const [frames, setFrames] = useState<ArchivedTropicalCyclone[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [modelResult, setModelResult] = useState<TyphoonModelResult | null>(
+    null,
+  );
   const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">(
     "loading",
   );
+
+  const latestSnapshotIndex = useMemo(() => {
+    if (!cyclone) return 0;
+    const latestTime = Date.parse(cyclone.fetchedAt);
+    let latest = 0;
+    for (let i = 0; i < frames.length; i++) {
+      if (Date.parse(frames[i].fetchedAt) <= latestTime) {
+        latest = i;
+      }
+    }
+    return latest;
+  }, [cyclone, frames]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -87,8 +214,14 @@ export function TyphoonTrackPage() {
           ...archived,
           latest,
         ]);
+
+        const lastForecastMs = findLastForecastTimeMs(latest.geoJson);
+        const futureSlots =
+          lastForecastMs !== null && lastForecastMs > Date.parse(latest.fetchedAt)
+            ? generateFutureSlots(latest.fetchedAt, lastForecastMs, latest)
+            : [];
         setCyclone(selectedCyclone);
-        setFrames(availableFrames);
+        setFrames([...availableFrames, ...futureSlots]);
         setSelectedIndex(Math.max(0, availableFrames.length - 1));
         setStatus(availableFrames.length > 0 ? "ready" : "empty");
       } catch {
@@ -101,6 +234,102 @@ export function TyphoonTrackPage() {
   }, []);
 
   const selectedFrame = frames[selectedIndex] ?? null;
+  const latestFrame = cyclone ? currentFrame(cyclone) : null;
+  const isFutureSlot = selectedFrame !== null && latestFrame !== null &&
+    Date.parse(selectedFrame.fetchedAt) > Date.parse(latestFrame.fetchedAt);
+
+  useEffect(() => {
+    if (!selectedFrame) return;
+    const controller = new AbortController();
+    const selectedTime = Date.parse(selectedFrame.fetchedAt);
+    const rangeMs = 3 * 24 * 60 * 60 * 1000;
+    const from = new Date(selectedTime - rangeMs / 2).toISOString();
+    const to = new Date(selectedTime + rangeMs / 2).toISOString();
+
+    const loadModelFrame = async () => {
+      try {
+        const [rainfall, wind] = await Promise.all([
+          weatherClient.getModelRainfallHistory("ec", from, to, {
+            signal: controller.signal,
+          }),
+          weatherClient.getModelWindHistory("ec", from, to, {
+            signal: controller.signal,
+          }),
+        ]);
+        const windByValidTime = new Map(
+          wind.data.map((frame) => [
+            `${Date.parse(frame.cycle)}|${Date.parse(frame.validAt)}`,
+            frame,
+          ]),
+        );
+        const candidates = rainfall.data
+          .flatMap((rainFrame) => {
+            const validTime = Date.parse(rainFrame.validAt);
+            if (!Number.isFinite(validTime)) return [];
+            return [{
+              cycle: rainFrame.cycle,
+              cycleTime: Date.parse(rainFrame.cycle),
+              validAt: rainFrame.validAt,
+              rainfall: rainFrame,
+              wind:
+                windByValidTime.get(
+                  `${Date.parse(rainFrame.cycle)}|${validTime}`,
+                ) ?? null,
+              validTime,
+            }];
+          });
+        const closest = (paired: boolean) =>
+          candidates
+            .filter((candidate) => !paired || candidate.wind !== null)
+            .sort(
+              (first, second) => {
+                const distance =
+                  Math.abs(first.validTime - selectedTime) -
+                  Math.abs(second.validTime - selectedTime);
+                return distance || second.cycleTime - first.cycleTime;
+              },
+            )[0];
+        const selected = closest(true) ?? closest(false);
+        const modelFrame = selected
+          ? {
+              validAt: selected.validAt,
+              rainfall: selected.rainfall,
+              wind: selected.wind,
+            }
+          : null;
+        if (controller.signal.aborted) return;
+        setModelResult({
+          frame: modelFrame,
+          snapshotTime: selectedFrame.fetchedAt,
+        });
+      } catch {
+        if (!controller.signal.aborted) {
+          setModelResult({
+            frame: null,
+            snapshotTime: selectedFrame.fetchedAt,
+          });
+        }
+      }
+    };
+
+    void loadModelFrame();
+    return () => controller.abort();
+  }, [selectedFrame]);
+
+  const currentModelResult =
+    selectedFrame &&
+    modelResult?.snapshotTime === selectedFrame.fetchedAt
+      ? modelResult
+      : null;
+  const modelFrame = currentModelResult?.frame ?? null;
+  const modelStatus: "idle" | "loading" | "ready" | "unavailable" =
+    !selectedFrame
+      ? "idle"
+      : !currentModelResult
+        ? "loading"
+        : currentModelResult.frame
+          ? "ready"
+          : "unavailable";
 
   const loaded = status === "ready" && cyclone && selectedFrame;
 
@@ -128,7 +357,7 @@ export function TyphoonTrackPage() {
                   aria-label="Archived track timeline"
                 >
                   <p className="typhoon-timeline-caption">
-                    Forecast snapshot {selectedIndex + 1} of {frames.length}
+                    {isFutureSlot ? "Future prediction" : "Forecast snapshot"} {selectedIndex + 1} of {frames.length}
                     <span aria-hidden="true"> · </span>
                     {formatSnapshotTime(selectedFrame.fetchedAt)}
                   </p>
@@ -145,17 +374,31 @@ export function TyphoonTrackPage() {
                         <path d="m11.5 4.5-4.5 4.5 4.5 4.5" />
                       </svg>
                     </button>
-                    <input
-                      type="range"
-                      min="0"
-                      max={Math.max(0, frames.length - 1)}
-                      step="1"
-                      value={selectedIndex}
-                      aria-label="Forecast snapshot"
-                      onChange={(event) =>
-                        setSelectedIndex(Number(event.currentTarget.value))
-                      }
-                    />
+                    <div className="typhoon-timeline-slider">
+                      <input
+                        type="range"
+                        className="typhoon-timeline-input"
+                        min="0"
+                        max={Math.max(0, frames.length - 1)}
+                        step="1"
+                        value={selectedIndex}
+                        aria-label="Forecast snapshot"
+                        onChange={(event) =>
+                          setSelectedIndex(Number(event.currentTarget.value))
+                        }
+                      />
+                      <input
+                        type="range"
+                        className="typhoon-timeline-marker"
+                        min="0"
+                        max={Math.max(0, frames.length - 1)}
+                        step="1"
+                        value={latestSnapshotIndex}
+                        tabIndex={-1}
+                        aria-hidden="true"
+                        disabled
+                      />
+                    </div>
                     <button
                       type="button"
                       aria-label="Next forecast snapshot"
@@ -170,6 +413,18 @@ export function TyphoonTrackPage() {
                         <path d="m6.5 4.5 4.5 4.5-4.5 4.5" />
                       </svg>
                     </button>
+                    <button
+                      type="button"
+                      aria-label="Return to current snapshot"
+                      disabled={selectedIndex === latestSnapshotIndex}
+                      onClick={() => setSelectedIndex(latestSnapshotIndex)}
+                      className="typhoon-timeline-reset"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 12a9 9 0 1 1-3-6.7" />
+                        <path d="M21 3v5h-5" />
+                      </svg>
+                    </button>
                   </div>
                 </section>
               ) : null}
@@ -180,10 +435,11 @@ export function TyphoonTrackPage() {
                 activeAsOf={cyclone.fetchedAt}
                 activeGeoJson={cyclone.geoJson}
                 asOf={selectedFrame.fetchedAt}
-                geoJson={selectedFrame.geoJson}
-                potentialTrackAreaGeoJson={
-                  selectedFrame.potentialTrackAreaGeoJson
-                }
+                geoJson={isFutureSlot ? cyclone.geoJson : selectedFrame.geoJson}
+                potentialTrackAreaGeoJson={isFutureSlot ? cyclone.potentialTrackAreaGeoJson : selectedFrame.potentialTrackAreaGeoJson}
+                modelFrame={modelFrame}
+                modelStatus={modelStatus}
+                isFuture={isFutureSlot}
                 key={selectedFrame.fetchedAt}
               />
             </div>

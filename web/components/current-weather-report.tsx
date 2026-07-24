@@ -7,6 +7,7 @@ import type {
 } from "@/components/weather-detail-sections";
 import { getConditionTone } from "@/lib/weather/condition-tone";
 import type { AstronomicalTimes } from "@/lib/weather/types";
+import { getMoonData } from "@/lib/weather/moon-phase";
 import { getUvTone } from "@/lib/weather/uv-tone";
 
 function formatUpdatedAt(iso: string) {
@@ -193,6 +194,8 @@ export function EnvironmentalConditions({
   activeSection,
   onSelectSection,
 }: EnvironmentalConditionsProps) {
+  const moonData = astronomical !== null ? getMoonData(new Date()) : null;
+
   return (
     <section className="environmental-conditions" aria-label="Environmental conditions">
       <div
@@ -232,6 +235,37 @@ export function EnvironmentalConditions({
               <span className="current-weather-unavailable">Unavailable</span>
             )}
           </p>
+          <p className="current-weather-moon-row">
+            <span>Moon</span>{" "}
+            {moonData !== null && astronomical !== null ? (
+              <>
+                <span className="moon-visual" aria-hidden="true">{moonData.emoji}</span>
+                <span className="moon-phase-name">{moonData.phase}</span>
+                <span className="moon-illumination">{moonData.illumination}%</span>
+              </>
+            ) : (
+              <span className="current-weather-unavailable">Unavailable</span>
+            )}
+          </p>
+          {moonData !== null && astronomical !== null && (
+            <p className="current-weather-moon-times">
+              {astronomical.moonrise && (
+                <>
+                  {astronomical.moonrise}
+                  <span className="moon-arrow" aria-hidden="true">↑</span>
+                </>
+              )}
+              {astronomical.moonrise && astronomical.moonset && (
+                <span className="moon-dot" aria-hidden="true">·</span>
+              )}
+              {astronomical.moonset && (
+                <>
+                  {astronomical.moonset}
+                  <span className="moon-arrow" aria-hidden="true">↓</span>
+                </>
+              )}
+            </p>
+          )}
         </div>
         <span className="weather-row-chevron" aria-hidden="true" />
       </div>
