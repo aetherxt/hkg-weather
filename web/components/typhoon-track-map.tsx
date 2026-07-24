@@ -66,18 +66,28 @@ interface TrackFeature {
   properties: Record<string, unknown>;
 }
 
+type TrackSource = "snapshot" | "active";
+
+interface DisplayTrackFeature extends TrackFeature {
+  source: TrackSource;
+}
+
 interface ProjectedTrackLine {
   id: string;
+  isForecast: boolean;
   model: string;
   path: string;
+  source: TrackSource;
 }
 
 interface ProjectedTrackPoint {
+  forecastDateLabel: string | null;
   forecastDateTime: string | null;
   id: string;
   isForecast: boolean;
   isCurrent: boolean;
   model: string;
+  source: TrackSource;
   x: number;
   y: number;
   tooltip: string;
@@ -420,16 +430,55 @@ function modelColor(model: string, models: readonly string[]) {
   return MODEL_COLORS[index % MODEL_COLORS.length];
 }
 
+function forecastDateLabel(
+  properties: Record<string, unknown>,
+  referenceTime: number,
+) {
+  const pointTime = trackPointTime(properties, referenceTime);
+  if (pointTime === null) return null;
+  return new Intl.DateTimeFormat("en-HK", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Hong_Kong",
+  }).format(new Date(pointTime));
+}
+
 export function TyphoonTrackMap({
+  activeAsOf,
+  activeGeoJson,
   asOf,
   geoJson,
   potentialTrackAreaGeoJson,
 }: {
+  activeAsOf: string;
+  activeGeoJson: Record<string, unknown>;
   asOf: string;
   geoJson: Record<string, unknown>;
   potentialTrackAreaGeoJson: Record<string, unknown> | null;
 }) {
-  const features = useMemo(() => trackFeatures(geoJson), [geoJson]);
+  const snapshotFeatures = useMemo(() => trackFeatures(geoJson), [geoJson]);
+  const activeFeatures = useMemo(
+    () => trackFeatures(activeGeoJson),
+    [activeGeoJson],
+  );
+  const features = useMemo<DisplayTrackFeature[]>(() => {
+    const activeIsSelected =
+      JSON.stringify(activeGeoJson) === JSON.stringify(geoJson);
+    const sourcedActive = activeFeatures.map((feature) => ({
+      ...feature,
+      id: `active-${feature.id}`,
+      source: "active" as const,
+    }));
+    if (activeIsSelected) return sourcedActive;
+    return [
+      ...snapshotFeatures.map((feature) => ({
+        ...feature,
+        id: `snapshot-${feature.id}`,
+        source: "snapshot" as const,
+      })),
+      ...sourcedActive,
+    ];
+  }, [activeFeatures, activeGeoJson, geoJson, snapshotFeatures]);
   const areas = useMemo(
     () => trackAreaFeatures(potentialTrackAreaGeoJson),
     [potentialTrackAreaGeoJson],
@@ -518,31 +567,42 @@ export function TyphoonTrackMap({
       (feature) => feature.geometry.type === "Point",
     );
     const asOfTime = Date.parse(asOf);
-    const nonForecastPoints = pointFeatures.filter((feature) => {
-      const searchableProperties = JSON.stringify(feature.properties);
-      return !/\bforecast/i.test(searchableProperties);
-    });
-    const currentPoint =
-      nonForecastPoints
-        .map((feature) => ({
-          feature,
-          time: trackPointTime(feature.properties, asOfTime),
-        }))
-        .filter(
-          (candidate): candidate is {
-            feature: TrackFeature;
-            time: number;
-          } =>
-            candidate.time !== null &&
-            (!Number.isFinite(asOfTime) ||
-              candidate.time <= asOfTime + 3 * 60 * 60 * 1000),
-        )
-        .sort((first, second) => second.time - first.time)[0]?.feature ??
-      nonForecastPoints.at(-1) ??
-      pointFeatures.at(-1);
-    const currentPointTime = currentPoint
-      ? trackPointTime(currentPoint.properties, asOfTime)
-      : null;
+    const activeAsOfTime = Date.parse(activeAsOf);
+    const currentPointFor = (
+      source: TrackSource,
+      referenceTime: number,
+    ) => {
+      const sourcePoints = pointFeatures.filter(
+        (feature) => feature.source === source,
+      );
+      const nonForecastPoints = sourcePoints.filter(
+        (feature) =>
+          !/\bforecast/i.test(JSON.stringify(feature.properties)),
+      );
+      return (
+        nonForecastPoints
+          .map((feature) => ({
+            feature,
+            time: trackPointTime(feature.properties, referenceTime),
+          }))
+          .filter(
+            (candidate): candidate is {
+              feature: DisplayTrackFeature;
+              time: number;
+            } =>
+              candidate.time !== null &&
+              (!Number.isFinite(referenceTime) ||
+                candidate.time <= referenceTime + 3 * 60 * 60 * 1000),
+          )
+          .sort((first, second) => second.time - first.time)[0]?.feature ??
+        nonForecastPoints.at(-1) ??
+        sourcePoints.at(-1)
+      );
+    };
+    const currentPoints = {
+      active: currentPointFor("active", activeAsOfTime),
+      snapshot: currentPointFor("snapshot", asOfTime),
+    };
     const projectedAreas: ProjectedTrackArea[] = areas.map((area) => ({
       id: area.id,
       forecastPeriod: area.forecastPeriod,
@@ -565,19 +625,29 @@ export function TyphoonTrackMap({
           .join(" ");
         lines.push({
           id: feature.id,
+          isForecast: /\bforecast/i.test(
+            JSON.stringify(feature.properties),
+          ),
           model: feature.model,
           path,
+          source: feature.source,
         });
         return;
       }
 
+      const referenceTime =
+        feature.source === "active" ? activeAsOfTime : asOfTime;
+      const sourceCurrentPoint = currentPoints[feature.source];
+      const currentPointTime = sourceCurrentPoint
+        ? trackPointTime(sourceCurrentPoint.properties, referenceTime)
+        : null;
       const pointDate = pointDateTime(feature.properties);
-      const pointTime = trackPointTime(feature.properties, asOfTime);
+      const pointTime = trackPointTime(feature.properties, referenceTime);
       const explicitlyForecast = /\bforecast/i.test(
         JSON.stringify(feature.properties),
       );
       const isForecast =
-        feature !== currentPoint &&
+        feature !== sourceCurrentPoint &&
         (explicitlyForecast ||
           (pointTime !== null &&
             currentPointTime !== null &&
@@ -590,11 +660,16 @@ export function TyphoonTrackMap({
       if (!tooltip) return;
       const point = toScreen(feature.geometry.coordinates as number[]);
       points.push({
+        forecastDateLabel: isForecast
+          ? forecastDateLabel(feature.properties, referenceTime)
+          : null,
         forecastDateTime: isForecast ? pointDate : null,
         id: feature.id,
         isForecast,
-        isCurrent: feature === currentPoint,
+        isCurrent:
+          feature.source === "active" && feature === currentPoints.active,
         model: feature.model,
+        source: feature.source,
         x: point.x,
         y: point.y,
         tooltip,
@@ -602,11 +677,12 @@ export function TyphoonTrackMap({
     });
     return {
       areas: projectedAreas,
+      hasSnapshot: features.some((feature) => feature.source === "snapshot"),
       hongKongReference,
       lines,
       points,
     };
-  }, [areas, asOf, features, view]);
+  }, [activeAsOf, areas, asOf, features, view]);
   const activeForecastPoint =
     projectedFeatures.points.find(
       (point) =>
@@ -809,16 +885,30 @@ export function TyphoonTrackMap({
               />
             ))}
           </g>
-          <g className="typhoon-track-lines" aria-hidden="true">
+          <g
+            className="typhoon-track-lines"
+            data-has-snapshot={
+              projectedFeatures.hasSnapshot ? "true" : undefined
+            }
+            aria-hidden="true"
+          >
             {projectedFeatures.lines.map((line) => (
               <path
+                className="typhoon-track-line"
+                data-forecast={line.isForecast ? "true" : undefined}
+                data-source={line.source}
                 d={line.path}
                 stroke={modelColor(line.model, models)}
                 key={line.id}
               />
             ))}
           </g>
-          <g className="typhoon-track-points">
+          <g
+            className="typhoon-track-points"
+            data-has-snapshot={
+              projectedFeatures.hasSnapshot ? "true" : undefined
+            }
+          >
             {projectedFeatures.points.map((point) =>
               point.isCurrent ? (
                 <g
@@ -840,6 +930,7 @@ export function TyphoonTrackMap({
               ) : (
                 <circle
                   data-forecast={point.isForecast ? "true" : undefined}
+                  data-source={point.source}
                   cx={point.x}
                   cy={point.y}
                   r="4.4"
@@ -871,6 +962,25 @@ export function TyphoonTrackMap({
                   {point.isForecast ? null : <title>{point.tooltip}</title>}
                 </circle>
               ),
+            )}
+          </g>
+          <g className="typhoon-track-date-labels" aria-hidden="true">
+            {projectedFeatures.points.map((point) =>
+              (point.source === "snapshot" ||
+                !projectedFeatures.hasSnapshot) &&
+              point.isForecast &&
+              point.forecastDateLabel ? (
+                <g
+                  data-source={point.source}
+                  transform={`translate(${point.x} ${point.y - 13})`}
+                  key={`date-${point.id}`}
+                >
+                  <rect x="-20" y="-8" width="40" height="15" rx="7.5" />
+                  <text x="0" y="0" dy="0.3em" textAnchor="middle">
+                    {point.forecastDateLabel}
+                  </text>
+                </g>
+              ) : null,
             )}
           </g>
           <g className="typhoon-hong-kong-reference">
@@ -940,13 +1050,17 @@ export function TyphoonTrackMap({
           </button>
         </div>
 
-        <div className="typhoon-track-legend" aria-label="Track models">
-          {models.map((model) => (
-            <span key={model}>
-              <i style={{ backgroundColor: modelColor(model, models) }} />
-              {model}
+        <div className="typhoon-track-legend" aria-label="Track versions">
+          {projectedFeatures.hasSnapshot ? (
+            <span>
+              <i className="typhoon-track-snapshot-key" />
+              Snapshot
             </span>
-          ))}
+          ) : null}
+          <span>
+            <i className="typhoon-track-newest-key" />
+            Newest prediction
+          </span>
           {areas.length > 0 ? (
             <>
               <span>

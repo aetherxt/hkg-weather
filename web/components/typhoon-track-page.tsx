@@ -107,16 +107,15 @@ export function TyphoonTrackPage() {
       <div className="typhoon-page-content">
         <div className="typhoon-page-sidebar">
           <header className="typhoon-page-header">
-            <p className="typhoon-page-kicker">Active tropical cyclone</p>
             <h1>
               Typhoon Track{cyclone ? ` (${cyclone.stormId})` : ""}
+              {cyclone ? (
+                <span className="typhoon-page-name">
+                  {cyclone.nameEn}
+                  {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
+                </span>
+              ) : null}
             </h1>
-            {cyclone ? (
-              <p className="typhoon-page-name">
-                {cyclone.nameEn}
-                {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
-              </p>
-            ) : null}
           </header>
 
           {status === "loading" ? (
@@ -182,9 +181,11 @@ export function TyphoonTrackPage() {
           ) : null}
         </div>
 
-        {status === "ready" && selectedFrame ? (
+        {status === "ready" && cyclone && selectedFrame ? (
           <div className="typhoon-page-map">
             <TyphoonTrackMap
+              activeAsOf={cyclone.fetchedAt}
+              activeGeoJson={cyclone.geoJson}
               asOf={selectedFrame.fetchedAt}
               geoJson={selectedFrame.geoJson}
               potentialTrackAreaGeoJson={
