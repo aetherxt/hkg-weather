@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { RainfallOverviewMap } from "@/components/hong-kong-weather-map";
+import { temperatureDisplayName } from "@/lib/weather/view-models";
 import type { WeatherSectionState } from "@/lib/weather/state";
 import type {
   DistrictRainfallReading,
@@ -91,7 +92,7 @@ function rainfallValue(value: number | null) {
 function RainfallStationCard({ item }: { item: RainfallStationItem }) {
   return (
     <div className="temperature-station-row">
-      <span className="temperature-station-name">{item.label}</span>
+      <span className="temperature-station-name">{temperatureDisplayName(item.label)}</span>
       <span className="temperature-station-value">
         {rainfallValue(item.value)}
         <span className="rw-unit">mm</span>
@@ -360,7 +361,7 @@ function RainfallStationEditor({
                     <div className="station-editor-column-list">
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
-                          <span className="station-editor-name">{item.label}</span>
+                          <span className="station-editor-name">{temperatureDisplayName(item.label)}</span>
                           <button
                             className="station-editor-remove"
                             onClick={() => onHide(item.id)}
@@ -391,7 +392,7 @@ function RainfallStationEditor({
                     <div className="station-editor-column-list">
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
-                          <span className="station-editor-name">{item.label}</span>
+                          <span className="station-editor-name">{temperatureDisplayName(item.label)}</span>
                           <button
                             className="station-editor-add"
                             onClick={() => onShow(item.id)}

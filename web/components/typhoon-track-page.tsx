@@ -102,99 +102,128 @@ export function TyphoonTrackPage() {
 
   const selectedFrame = frames[selectedIndex] ?? null;
 
+  const loaded = status === "ready" && cyclone && selectedFrame;
+
   return (
     <main className="weather-page typhoon-page">
       <div className="typhoon-page-content">
-        <div className="typhoon-page-sidebar">
-          <header className="typhoon-page-header">
-            <h1>
-              Typhoon Track{cyclone ? ` (${cyclone.stormId})` : ""}
-              {cyclone ? (
-                <span className="typhoon-page-name">
-                  {cyclone.nameEn}
-                  {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
-                </span>
-              ) : null}
-            </h1>
-          </header>
+        {loaded ? (
+          <>
+            <div className="typhoon-page-sidebar">
+              <header className="typhoon-page-header">
+                <h1>
+                  Typhoon Track{cyclone ? ` (${cyclone.stormId})` : ""}
+                  {cyclone ? (
+                    <span className="typhoon-page-name">
+                      {cyclone.nameEn}
+                      {cyclone.nameZh ? ` · ${cyclone.nameZh}` : ""}
+                    </span>
+                  ) : null}
+                </h1>
+              </header>
 
-          {status === "loading" ? (
-            <p className="typhoon-page-state">Loading typhoon track…</p>
-          ) : status === "empty" ? (
+              {selectedFrame ? (
+                <section
+                  className="typhoon-timeline"
+                  aria-label="Archived track timeline"
+                >
+                  <p className="typhoon-timeline-caption">
+                    Forecast snapshot {selectedIndex + 1} of {frames.length}
+                    <span aria-hidden="true"> · </span>
+                    {formatSnapshotTime(selectedFrame.fetchedAt)}
+                  </p>
+                  <div className="typhoon-timeline-controls">
+                    <button
+                      type="button"
+                      aria-label="Previous forecast snapshot"
+                      disabled={selectedIndex === 0}
+                      onClick={() =>
+                        setSelectedIndex((index) => Math.max(0, index - 1))
+                      }
+                    >
+                      <svg viewBox="0 0 18 18" aria-hidden="true">
+                        <path d="m11.5 4.5-4.5 4.5 4.5 4.5" />
+                      </svg>
+                    </button>
+                    <input
+                      type="range"
+                      min="0"
+                      max={Math.max(0, frames.length - 1)}
+                      step="1"
+                      value={selectedIndex}
+                      aria-label="Forecast snapshot"
+                      onChange={(event) =>
+                        setSelectedIndex(Number(event.currentTarget.value))
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label="Next forecast snapshot"
+                      disabled={selectedIndex >= frames.length - 1}
+                      onClick={() =>
+                        setSelectedIndex((index) =>
+                          Math.min(frames.length - 1, index + 1),
+                        )
+                      }
+                    >
+                      <svg viewBox="0 0 18 18" aria-hidden="true">
+                        <path d="m6.5 4.5 4.5 4.5-4.5 4.5" />
+                      </svg>
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+            </div>
+
+            <div className="typhoon-page-map">
+              <TyphoonTrackMap
+                activeAsOf={cyclone.fetchedAt}
+                activeGeoJson={cyclone.geoJson}
+                asOf={selectedFrame.fetchedAt}
+                geoJson={selectedFrame.geoJson}
+                potentialTrackAreaGeoJson={
+                  selectedFrame.potentialTrackAreaGeoJson
+                }
+                key={selectedFrame.fetchedAt}
+              />
+            </div>
+          </>
+        ) : status === "empty" ? (
+          <div className="typhoon-page-sidebar">
+            <header className="typhoon-page-header">
+              <h1>Typhoon Track</h1>
+            </header>
             <p className="typhoon-page-state">
               No active typhoon track is available.
             </p>
-          ) : status === "error" ? (
+          </div>
+        ) : status === "error" ? (
+          <div className="typhoon-page-sidebar">
+            <header className="typhoon-page-header">
+              <h1>Typhoon Track</h1>
+            </header>
             <p className="typhoon-page-state">
               The typhoon track is temporarily unavailable.
             </p>
-          ) : selectedFrame ? (
-            <section
-              className="typhoon-timeline"
-              aria-label="Archived track timeline"
-            >
-              <p className="typhoon-timeline-caption">
-                Forecast snapshot {selectedIndex + 1} of {frames.length}
-                <span aria-hidden="true"> · </span>
-                {formatSnapshotTime(selectedFrame.fetchedAt)}
-              </p>
-              <div className="typhoon-timeline-controls">
-                <button
-                  type="button"
-                  aria-label="Previous forecast snapshot"
-                  disabled={selectedIndex === 0}
-                  onClick={() =>
-                    setSelectedIndex((index) => Math.max(0, index - 1))
-                  }
-                >
-                  <svg viewBox="0 0 18 18" aria-hidden="true">
-                    <path d="m11.5 4.5-4.5 4.5 4.5 4.5" />
-                  </svg>
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max={Math.max(0, frames.length - 1)}
-                  step="1"
-                  value={selectedIndex}
-                  aria-label="Forecast snapshot"
-                  onChange={(event) =>
-                    setSelectedIndex(Number(event.currentTarget.value))
-                  }
-                />
-                <button
-                  type="button"
-                  aria-label="Next forecast snapshot"
-                  disabled={selectedIndex >= frames.length - 1}
-                  onClick={() =>
-                    setSelectedIndex((index) =>
-                      Math.min(frames.length - 1, index + 1),
-                    )
-                  }
-                >
-                  <svg viewBox="0 0 18 18" aria-hidden="true">
-                    <path d="m6.5 4.5 4.5 4.5-4.5 4.5" />
-                  </svg>
-                </button>
-              </div>
-            </section>
-          ) : null}
-        </div>
-
-        {status === "ready" && cyclone && selectedFrame ? (
-          <div className="typhoon-page-map">
-            <TyphoonTrackMap
-              activeAsOf={cyclone.fetchedAt}
-              activeGeoJson={cyclone.geoJson}
-              asOf={selectedFrame.fetchedAt}
-              geoJson={selectedFrame.geoJson}
-              potentialTrackAreaGeoJson={
-                selectedFrame.potentialTrackAreaGeoJson
-              }
-              key={selectedFrame.fetchedAt}
-            />
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div className="typhoon-page-skeleton-sidebar">
+              <div className="typhoon-skeleton typhoon-skeleton-header" />
+              <div className="typhoon-skeleton typhoon-skeleton-caption" />
+              <div className="typhoon-skeleton-controls">
+                <div className="typhoon-skeleton typhoon-skeleton-button" />
+                <div className="typhoon-skeleton typhoon-skeleton-slider" />
+                <div className="typhoon-skeleton typhoon-skeleton-button" />
+              </div>
+            </div>
+            <div className="typhoon-page-map">
+              <div className="typhoon-skeleton-map">
+                <div className="typhoon-skeleton typhoon-skeleton-map-inner" />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </main>
   );

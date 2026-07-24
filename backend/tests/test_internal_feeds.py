@@ -10,12 +10,14 @@ from app import internal_feeds
 from app.internal_feeds import (
     EARTH_WEATHER_MODELS,
     EARTH_WEATHER_RAINFALL_MODELS,
+    EARTH_WEATHER_WIND_MODELS,
     EarthWeatherCyclePayload,
     OcfStationForecastPayload,
     earth_cycle_source_updated_at,
     earth_rainfall_lead_hours,
     earth_weather_cycle_spec,
     earth_weather_rainfall_spec,
+    earth_weather_wind_spec,
     load_ocf_stations,
     ocf_source_updated_at,
     ocf_station_spec,
@@ -196,6 +198,84 @@ def test_earth_weather_rainfall_spec_uses_latest_available_frame() -> None:
         "/ec_2026071700_2026071715_f015_sfc_RF.png"
     )
     assert spec.archive_retention is not None
+
+
+def test_earth_weather_wind_spec_uses_ecmwf_surface_uv_frame() -> None:
+    model = EARTH_WEATHER_WIND_MODELS[0]
+    base_time = datetime(2026, 7, 17, tzinfo=UTC)
+
+    spec = earth_weather_wind_spec(model, base_time, 15)
+
+    assert [item.model_id for item in EARTH_WEATHER_WIND_MODELS] == ["ec"]
+    assert spec.document_id == "earth_weather_wind:ec"
+    assert spec.url.endswith("/ec_2026071700_2026071715_f015_sfc_UV.png")
+    assert spec.archive_retention is not None
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + b"\x00\x00\x00\rIHDR"
+        + struct.pack(">II", 381, 245)
+        + bytes((8, 6, 0, 0, 0))
+    )
+    validated = spec.validate(png)
+    assert validated.metadata["raster_width"] == 381
+    assert validated.metadata["raster_height"] == 245
+    assert validated.metadata["header_rows"] == 4
+    assert validated.metadata["grid_width"] == 381
+    assert validated.metadata["grid_height"] == 241
+    assert validated.metadata["components"] == ["u", "v"]
+    assert validated.metadata["units"] == "m/s"
+
+
+def test_earth_weather_wind_rejects_non_rgba_png() -> None:
+    spec = earth_weather_wind_spec(
+        EARTH_WEATHER_WIND_MODELS[0],
+        datetime(2026, 7, 17, tzinfo=UTC),
+        15,
+    )
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + b"\x00\x00\x00\rIHDR"
+        + struct.pack(">II", 381, 245)
+        + bytes((8, 2, 0, 0, 0))
+    )
+
+    with pytest.raises(ValueError, match="8-bit RGBA"):
+        spec.validate(png)
+
+
+def test_earth_weather_rainfall_ingestion_also_stores_ecmwf_wind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cycle = EarthWeatherCyclePayload(default="2026071700")
+    monkeypatch.setattr(
+        internal_feeds,
+        "_fetch_earth_weather_cycle",
+        AsyncMock(return_value=cycle),
+    )
+    stored = RawIngestionResult(
+        changed=True,
+        source_updated_at=datetime(2026, 7, 17, tzinfo=UTC),
+        fetched_at=datetime(2026, 7, 17, 14, 46, tzinfo=UTC),
+    )
+    ingest = AsyncMock(return_value=stored)
+    monkeypatch.setattr(internal_feeds, "ingest_raw_dataset", ingest)
+
+    results = asyncio.run(
+        internal_feeds.ingest_earth_weather_rainfall(
+            object(),
+            object(),
+            models=(EARTH_WEATHER_WIND_MODELS[0],),
+            now=datetime(2026, 7, 17, 14, 45, tzinfo=UTC),
+        )
+    )
+
+    assert [result.dataset for result in results] == [
+        "earth_weather_rainfall:ec",
+        "earth_weather_wind:ec",
+    ]
+    assert ingest.await_args_list[0].args[2].url.endswith("_sfc_RF.png")
+    assert ingest.await_args_list[1].args[2].url.endswith("_sfc_UV.png")
 
 
 def test_png_validation_returns_dimensions_and_metadata() -> None:

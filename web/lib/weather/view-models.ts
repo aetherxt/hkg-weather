@@ -16,6 +16,7 @@ const HKO_STATION = "Hong Kong Observatory";
 const temperatureDisplayNames: Record<string, string> = {
   "Hong Kong Observatory": "HK Observatory",
   "Tsuen Wan Shing Mun Valley": "Shing Mun Valley",
+  "Tsuen Wan Ho Koon": "Ho Koon",
   "Kai Tak Runway Park": "Kai Tak",
 };
 

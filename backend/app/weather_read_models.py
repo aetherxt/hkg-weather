@@ -124,6 +124,23 @@ class ModelRainfallMetadata(PublicModel):
     image_url: str
 
 
+class ModelWindMetadata(PublicModel):
+    model_id: str
+    label: str
+    cycle: datetime
+    lead_hours: int
+    valid_at: datetime
+    level: str
+    components: list[str]
+    units: str
+    encoded_width: int
+    encoded_height: int
+    header_rows: int
+    grid_width: int
+    grid_height: int
+    image_url: str
+
+
 class TropicalCyclone(PublicModel):
     storm_id: str
     name_en: str
@@ -196,4 +213,17 @@ class ArchivedModelRainfall(PublicModel):
     lead_hours: int
     width: int
     height: int
+    image_url: str
+
+
+class ArchivedModelWind(PublicModel):
+    cycle: datetime
+    valid_at: datetime
+    lead_hours: int
+    level: str
+    encoded_width: int
+    encoded_height: int
+    header_rows: int
+    grid_width: int
+    grid_height: int
     image_url: str

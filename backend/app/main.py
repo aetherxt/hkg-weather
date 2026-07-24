@@ -30,6 +30,7 @@ from .ingestion import (
 from .internal_feeds import (
     EARTH_WEATHER_MODELS,
     EARTH_WEATHER_RAINFALL_MODELS,
+    EARTH_WEATHER_WIND_MODELS,
     TROPICAL_CYCLONE_TRACK_DATASET,
     EarthWeatherCycleIngestionResponse,
     EarthWeatherRainfallIngestionResponse,
@@ -540,6 +541,7 @@ async def cron_earth_weather_rainfall(
     return EarthWeatherRainfallIngestionResponse(
         datasets=results,
         configured_models=len(EARTH_WEATHER_RAINFALL_MODELS),
+        configured_wind_models=len(EARTH_WEATHER_WIND_MODELS),
     )
 
 

@@ -52,6 +52,7 @@ TROPICAL_CYCLONE_TRACK_ROOT = "https://www.hko.gov.hk/wxinfo/currwx/"
 OCF_STATION_FORECAST_DATASET = "ocf_station_forecast"
 EARTH_WEATHER_CYCLE_DATASET = "earth_weather_model_cycle"
 EARTH_WEATHER_RAINFALL_DATASET = "earth_weather_rainfall"
+EARTH_WEATHER_WIND_DATASET = "earth_weather_wind"
 RADAR_128_DATASET = "radar_128"
 TROPICAL_CYCLONE_TRACK_DATASET = "tropical_cyclone_track"
 TROPICAL_CYCLONE_TRACK_AREA_DATASET = "tropical_cyclone_track_area"
@@ -152,6 +153,7 @@ class EarthWeatherCycleIngestionResponse(BatchIngestionResponse):
 
 class EarthWeatherRainfallIngestionResponse(BatchIngestionResponse):
     configured_models: int = Field(serialization_alias="configuredModels")
+    configured_wind_models: int = Field(serialization_alias="configuredWindModels")
 
 
 class TropicalCycloneIngestionResponse(BatchIngestionResponse):
@@ -209,6 +211,7 @@ EARTH_WEATHER_MODELS = (
 EARTH_WEATHER_RAINFALL_MODELS = tuple(
     model for model in EARTH_WEATHER_MODELS if model.rainfall_interval_hours is not None
 )
+EARTH_WEATHER_WIND_MODELS = (EARTH_WEATHER_MODELS[0],)
 
 
 def parse_compact_time(
@@ -305,6 +308,66 @@ def earth_weather_rainfall_spec(
                 "field": "RF",
             },
         ),
+        default_content_type="image/png",
+        archive_retention=ARCHIVE_RETENTION,
+    )
+
+
+def earth_weather_wind_spec(
+    model: EarthWeatherModel,
+    base_time: datetime,
+    lead_hours: int,
+) -> RawDatasetSpec:
+    valid_at = base_time + timedelta(hours=lead_hours)
+    base_value = format_compact_utc(base_time)
+    valid_value = format_compact_utc(valid_at)
+    lead_value = f"{lead_hours:03d}"
+    filename = f"{model.model_id}_{base_value}_{valid_value}_f{lead_value}_sfc_UV.png"
+    url = f"{EARTH_WEATHER_ROOT}/weather/{model.model_id}/{base_value}/{filename}"
+
+    def validate_wind_png(raw_payload: bytes) -> ValidatedPayload:
+        validated = validate_png(
+            raw_payload,
+            source_updated_at=base_time,
+            metadata={
+                "model": model.model_id,
+                "model_label": model.label,
+                "base_time": base_time,
+                "valid_at": valid_at,
+                "lead_hours": lead_hours,
+                "level": "sfc",
+                "field": "UV",
+            },
+        )
+        width = int(validated.metadata["raster_width"])
+        height = int(validated.metadata["raster_height"])
+        if len(raw_payload) < 29:
+            raise ValueError("wind-vector PNG has an incomplete IHDR header")
+        bit_depth = raw_payload[24]
+        colour_type = raw_payload[25]
+        if bit_depth != 8 or colour_type != 6:
+            raise ValueError("wind-vector PNG must be 8-bit RGBA")
+        header_rows = 4
+        if height <= header_rows:
+            raise ValueError("wind-vector PNG has no vector grid")
+        return ValidatedPayload(
+            source_updated_at=validated.source_updated_at,
+            metadata={
+                **validated.metadata,
+                "header_rows": header_rows,
+                "grid_width": width,
+                "grid_height": height - header_rows,
+                "components": ["u", "v"],
+                "units": "m/s",
+                "encoding": "hko-earth-weather-uv-png-v1",
+            },
+        )
+
+    return RawDatasetSpec(
+        dataset=EARTH_WEATHER_WIND_DATASET,
+        document_id=f"{EARTH_WEATHER_WIND_DATASET}:{model.model_id}",
+        url=url,
+        validate=validate_wind_png,
         default_content_type="image/png",
         archive_retention=ARCHIVE_RETENTION,
     )
@@ -649,6 +712,15 @@ async def ingest_earth_weather_rainfall(
             now=current_time,
         )
         results.append(ingestion_status(spec.document_id, result))
+        if model in EARTH_WEATHER_WIND_MODELS:
+            wind_spec = earth_weather_wind_spec(model, base_time, lead_hours)
+            wind_result = await ingest_raw_dataset(
+                database,
+                client,
+                wind_spec,
+                now=current_time,
+            )
+            results.append(ingestion_status(wind_spec.document_id, wind_result))
     return results
 
 

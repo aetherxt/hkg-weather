@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { TemperatureOverviewMap } from "@/components/hong-kong-weather-map";
+import { temperatureDisplayName } from "@/lib/weather/view-models";
 import {
   buildTemperatureSensorItems,
   defaultTemperatureRegionOrder,
@@ -160,7 +161,7 @@ function WindArrow({ direction }: { direction: string | null }) {
 }
 
 function TemperatureSensorCard({ item, windDirection, windSpeedKmh }: { item: TemperatureSensorItem; windDirection: string | null; windSpeedKmh: number | null }) {
-  const sensorLabel = item.kind === "lamppost" ? firstLamppostLocation(item.label) : item.label;
+  const sensorLabel = item.kind === "lamppost" ? firstLamppostLocation(item.label) : temperatureDisplayName(item.label);
   const hasWind = windDirection || (windSpeedKmh !== null);
 
   return (
@@ -473,7 +474,7 @@ function StationEditor({
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
                           <span className="station-editor-item-kind">{item.kind}</span>
-                          <span className="station-editor-name">{firstLamppostLocation(item.label)}</span>
+                          <span className="station-editor-name">{item.kind === "lamppost" ? firstLamppostLocation(item.label) : temperatureDisplayName(item.label)}</span>
                           <button
                             className="station-editor-remove"
                             onClick={() => onHide(item.id)}
@@ -505,7 +506,7 @@ function StationEditor({
                       {group.items.map((item) => (
                         <label key={item.id} className="station-editor-item">
                           <span className="station-editor-item-kind">{item.kind}</span>
-                          <span className="station-editor-name">{firstLamppostLocation(item.label)}</span>
+                          <span className="station-editor-name">{item.kind === "lamppost" ? firstLamppostLocation(item.label) : temperatureDisplayName(item.label)}</span>
                           <button
                             className="station-editor-add"
                             onClick={() => onShow(item.id)}

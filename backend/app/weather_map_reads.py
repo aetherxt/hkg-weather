@@ -2,7 +2,11 @@ from datetime import UTC
 
 from fastapi import APIRouter, Request, Response
 
-from .internal_feeds import EARTH_WEATHER_RAINFALL_DATASET, RADAR_128_DATASET
+from .internal_feeds import (
+    EARTH_WEATHER_RAINFALL_DATASET,
+    EARTH_WEATHER_WIND_DATASET,
+    RADAR_128_DATASET,
+)
 from .official_feeds import GRIDDED_RAINFALL_NOWCAST_DATASET
 from .storage_read import (
     DatasetNotFoundError,
@@ -19,18 +23,21 @@ from .weather_read_common import (
     document_datetime,
     image_response,
     model_rainfall_metadata,
+    model_wind_metadata,
     parse_public_time,
     parse_rainfall_grids,
     positive_int,
     rainfall_model,
     response_meta,
     set_latest_cache,
+    wind_model,
 )
 from .weather_read_models import (
     DataResponse,
     ListResponse,
     ListResponseMetadata,
     ModelRainfallMetadata,
+    ModelWindMetadata,
     RadarMetadata,
     RainfallFrame,
     RainfallGrid,
@@ -170,6 +177,53 @@ async def get_model_rainfall_image(
 ) -> Response:
     model = rainfall_model(model_id)
     document_id = f"{EARTH_WEATHER_RAINFALL_DATASET}:{model.model_id}"
+    document = await read_latest_document(database, document_id)
+    payload, stored = read_binary_payload(
+        document,
+        document_id,
+        expected_content_type="image/png",
+        signature=PNG_SIGNATURE,
+    )
+    return image_response(request, payload, stored, immutable=False)
+
+
+@router.get(
+    "/models/{model_id}/wind",
+    response_model=DataResponse[ModelWindMetadata],
+)
+async def get_model_wind_metadata(
+    model_id: str,
+    response: Response,
+    database: ReadDatabase,
+) -> DataResponse[ModelWindMetadata]:
+    model = wind_model(model_id)
+    document_id = f"{EARTH_WEATHER_WIND_DATASET}:{model.model_id}"
+    document = await read_latest_document(database, document_id)
+    stored = validate_stored_document(document, document_id)
+    data = model_wind_metadata(
+        document,
+        model.model_id,
+        image_url=f"/api/weather/models/{model.model_id}/wind/image",
+    )
+    set_latest_cache(response)
+    return DataResponse(data=data, meta=response_meta(document_id, stored))
+
+
+@router.get(
+    "/models/{model_id}/wind/image",
+    response_class=Response,
+    responses={
+        200: {"content": {"image/png": {}}},
+        304: {"description": "Not modified"},
+    },
+)
+async def get_model_wind_image(
+    model_id: str,
+    request: Request,
+    database: ReadDatabase,
+) -> Response:
+    model = wind_model(model_id)
+    document_id = f"{EARTH_WEATHER_WIND_DATASET}:{model.model_id}"
     document = await read_latest_document(database, document_id)
     payload, stored = read_binary_payload(
         document,

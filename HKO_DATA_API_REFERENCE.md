@@ -994,6 +994,14 @@ Do not assume every model produces every field. Use the availability table in se
 
 The return type is an RGBA PNG, typically representing the whole model domain on a fixed grid. It is not a JSON array and should not be interpreted as a pre-coloured screenshot.
 
+For the ECMWF surface `UV` product currently ingested by this application, the
+encoded image is 381 pixels wide by 245 pixels high. The first four rows encode
+viewer header values, leaving a 381 by 241 vector grid. Red and green encode the
+U and V components using the per-frame ranges in that header; the values are in
+metres per second. These details are reverse-engineered internal behaviour, so
+the ingestion adapter validates the PNG layout and preserves the original bytes
+instead of treating the encoding as a stable public contract.
+
 The viewer uses its JavaScript rendering layer to:
 
 1. map image pixels to the model domain;
@@ -1515,7 +1523,8 @@ and ETags. Conditional image requests support `304 Not Modified`.
 The Earth Weather rainfall PNG's internal numerical/geographic representation
 has not yet been treated as a decoded quantitative grid. It remains an encoded
 source raster until its projection, crop, colour encoding and bounds are
-verified.
+verified. The ECMWF `UV` PNG is likewise retained intact; its U/V channel
+decoder and particle advection belong in the browser rather than ingestion.
 
 ## 20. Sources
 

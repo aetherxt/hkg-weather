@@ -276,6 +276,52 @@ def test_radar_image_is_native_png_with_etag_and_conditional_get() -> None:
     assert not_modified.content == b""
 
 
+def test_ecmwf_wind_metadata_exposes_encoded_vector_grid() -> None:
+    document = {
+        "payload": Binary(b"\x89PNG\r\n\x1a\n"),
+        "source_updated_at": datetime(2026, 7, 18, tzinfo=UTC),
+        "fetched_at": datetime(2026, 7, 18, 2, 5, tzinfo=UTC),
+        "content_hash": "c" * 64,
+        "content_type": "image/png",
+        "byte_size": 8,
+        "model": "ec",
+        "base_time": datetime(2026, 7, 18, tzinfo=UTC),
+        "valid_at": datetime(2026, 7, 18, 3, tzinfo=UTC),
+        "lead_hours": 3,
+        "level": "sfc",
+        "components": ["u", "v"],
+        "units": "m/s",
+        "raster_width": 381,
+        "raster_height": 245,
+        "header_rows": 4,
+        "grid_width": 381,
+        "grid_height": 241,
+    }
+
+    response = request(
+        "/api/weather/models/ec/wind",
+        database_with_latest(document),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "modelId": "ec",
+        "label": "ECMWF",
+        "cycle": "2026-07-18T00:00:00Z",
+        "leadHours": 3,
+        "validAt": "2026-07-18T03:00:00Z",
+        "level": "sfc",
+        "components": ["u", "v"],
+        "units": "m/s",
+        "encodedWidth": 381,
+        "encodedHeight": 245,
+        "headerRows": 4,
+        "gridWidth": 381,
+        "gridHeight": 241,
+        "imageUrl": "/api/weather/models/ec/wind/image",
+    }
+
+
 def test_warning_documents_may_all_be_absent() -> None:
     response = request("/api/weather/warnings", database_with_latest(None))
 
@@ -293,6 +339,7 @@ def test_warning_documents_may_all_be_absent() -> None:
     [
         "/api/weather/lampposts/not-configured/01",
         "/api/weather/models/pangu/rainfall",
+        "/api/weather/models/aifs/wind",
         (
             "/api/weather/history/radar?"
             "from=2026-07-10T00:00:00Z&to=2026-07-18T00:00:00Z"

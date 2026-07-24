@@ -170,7 +170,7 @@ Viewer: <https://maps.weather.gov.hk/wxviewer/index.html?lang=en>
 
 These are internal viewer assets rather than versioned public APIs.
 
-Earth Weather encoded model assets will be retained only as raw upstream inputs where required. Model colours and interactive weather layers will be generated in the browser rather than stored as finished map images.
+Earth Weather encoded model assets will be retained only as raw upstream inputs where required. This includes the ECMWF surface `UV` raster used for wind particles. Model colours and interactive weather layers will be generated in the browser rather than stored as finished map images.
 
 ### 2.4 HKO radar and tropical-cyclone feeds
 
@@ -244,6 +244,7 @@ Earth Weather encoded model assets will be retained only as raw upstream inputs 
 | OCF two-hour rainfall assets | No duplicate archive; use the documented gridded nowcast as the canonical numerical source | OCF assets may be fetched for validation or fallback only | Not stored |
 | Earth Weather model-cycle metadata | Raw current-cycle JSON per model | Replace when the model cycle changes | Latest only |
 | Earth Weather rainfall | Original encoded surface `RF` PNG for the nearest future valid time, with model, cycle, lead time, valid time and raster dimensions | Maintain one latest frame per rainfall-capable model and archive each changed prediction; defer geographic cropping until the internal raster geometry is decoded reliably | 3 days |
+| ECMWF wind vectors | Original encoded surface `UV` PNG for the same cycle, lead time and valid time selected by the Earth Weather rainfall job; store encoded and vector-grid dimensions plus component/unit metadata | Maintain one latest ECMWF frame and archive each changed prediction; decode and animate particles in the browser | 3 days |
 | Other Earth Weather fields | None by default | Fetch on demand unless later added to the storage plan | Not stored |
 | 128 km radar | Original PNG plus bounds and observation time from KML | Maintain latest and archive one image every 30 minutes | Latest plus 3-day archive |
 | Current tropical-cyclone track | Raw XML | Save each changed track while a cyclone product exists; also maintain latest | 3 days |

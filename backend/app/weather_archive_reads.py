@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request, Response
 
 from .internal_feeds import (
     EARTH_WEATHER_RAINFALL_DATASET,
+    EARTH_WEATHER_WIND_DATASET,
     OCF_STATION_FORECAST_DATASET,
     RADAR_128_DATASET,
     TROPICAL_CYCLONE_TRACK_AREA_DATASET,
@@ -45,6 +46,7 @@ from .weather_read_common import (
     image_response,
     list_response_meta,
     model_rainfall_metadata,
+    model_wind_metadata,
     parse_public_time,
     parse_rainfall_grids,
     positive_int,
@@ -52,10 +54,12 @@ from .weather_read_common import (
     rainfall_model,
     response_meta,
     set_latest_cache,
+    wind_model,
 )
 from .weather_read_models import (
     ArchivedForecast,
     ArchivedModelRainfall,
+    ArchivedModelWind,
     ArchivedObservation,
     ArchivedRadarFrame,
     ArchivedRainfallFrame,
@@ -516,6 +520,98 @@ async def get_archived_model_rainfall_image(
     payload, stored = read_binary_payload(
         document,
         EARTH_WEATHER_RAINFALL_DATASET,
+        expected_content_type="image/png",
+        signature=PNG_SIGNATURE,
+    )
+    return image_response(request, payload, stored, immutable=True)
+
+
+@router.get(
+    "/history/models/{model_id}/wind",
+    response_model=ListResponse[ArchivedModelWind],
+)
+async def get_model_wind_history(
+    model_id: str,
+    response: Response,
+    database: ReadDatabase,
+    from_time: ArchiveFrom,
+    to_time: ArchiveTo,
+) -> ListResponse[ArchivedModelWind]:
+    model = wind_model(model_id)
+    document_id = f"{EARTH_WEATHER_WIND_DATASET}:{model.model_id}"
+    raw_documents = await archive_documents(
+        database,
+        EARTH_WEATHER_WIND_DATASET,
+        document_id,
+        "valid_at",
+        from_time,
+        to_time,
+    )
+    data = []
+    documents = []
+    for document in raw_documents:
+        stored = validate_stored_document(document, EARTH_WEATHER_WIND_DATASET)
+        valid_at = document_datetime(document, "valid_at", document_id)
+        metadata = model_wind_metadata(
+            document,
+            model.model_id,
+            image_url=(
+                "/api/weather/history/models/"
+                f"{model.model_id}/wind/{compact_utc(valid_at)}/image"
+            ),
+        )
+        data.append(
+            ArchivedModelWind(
+                cycle=metadata.cycle,
+                valid_at=metadata.valid_at,
+                lead_hours=metadata.lead_hours,
+                level=metadata.level,
+                encoded_width=metadata.encoded_width,
+                encoded_height=metadata.encoded_height,
+                header_rows=metadata.header_rows,
+                grid_width=metadata.grid_width,
+                grid_height=metadata.grid_height,
+                image_url=metadata.image_url,
+            )
+        )
+        documents.append(stored)
+    set_latest_cache(response, forecast=True)
+    return ListResponse(
+        data=data,
+        meta=list_response_meta(document_id, documents, len(data)),
+    )
+
+
+@router.get(
+    "/history/models/{model_id}/wind/{valid_at}/image",
+    response_class=Response,
+    responses={
+        200: {"content": {"image/png": {}}},
+        304: {"description": "Not modified"},
+    },
+)
+async def get_archived_model_wind_image(
+    model_id: str,
+    valid_at: str,
+    request: Request,
+    database: ReadDatabase,
+) -> Response:
+    model = wind_model(model_id)
+    valid = parse_public_time(valid_at, UTC)
+    document_id = f"{EARTH_WEATHER_WIND_DATASET}:{model.model_id}"
+    document = await database["archive"].find_one(
+        {
+            "dataset": EARTH_WEATHER_WIND_DATASET,
+            "document_id": document_id,
+            "valid_at": valid.astimezone(UTC),
+        },
+        LATEST_PROJECTION,
+    )
+    if document is None:
+        raise DatasetNotFoundError(document_id)
+    payload, stored = read_binary_payload(
+        document,
+        EARTH_WEATHER_WIND_DATASET,
         expected_content_type="image/png",
         signature=PNG_SIGNATURE,
     )

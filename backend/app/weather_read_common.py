@@ -14,6 +14,8 @@ from .database import get_read_database
 from .internal_feeds import (
     EARTH_WEATHER_RAINFALL_DATASET,
     EARTH_WEATHER_RAINFALL_MODELS,
+    EARTH_WEATHER_WIND_DATASET,
+    EARTH_WEATHER_WIND_MODELS,
     load_ocf_stations,
 )
 from .official_feeds import GRIDDED_RAINFALL_NOWCAST_DATASET
@@ -29,6 +31,7 @@ from .weather_read_models import (
     Bounds,
     ListResponseMetadata,
     ModelRainfallMetadata,
+    ModelWindMetadata,
     RainfallGrid,
     ResponseMetadata,
     StationItem,
@@ -321,6 +324,19 @@ def rainfall_model(model_id: str):
     return model
 
 
+def wind_model(model_id: str):
+    model = next(
+        (item for item in EARTH_WEATHER_WIND_MODELS if item.model_id == model_id),
+        None,
+    )
+    if model is None:
+        raise reader_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Unsupported wind model",
+        )
+    return model
+
+
 def model_rainfall_metadata(
     document: dict[str, Any],
     model_id: str,
@@ -354,5 +370,40 @@ def model_rainfall_metadata(
             "raster_height",
             EARTH_WEATHER_RAINFALL_DATASET,
         ),
+        image_url=image_url,
+    )
+
+
+def model_wind_metadata(
+    document: dict[str, Any],
+    model_id: str,
+    *,
+    image_url: str,
+) -> ModelWindMetadata:
+    model = wind_model(model_id)
+    document_id = f"{EARTH_WEATHER_WIND_DATASET}:{model_id}"
+    if document.get("model") != model.model_id:
+        raise StoredDataError(document_id)
+    components = document.get("components")
+    if components != ["u", "v"]:
+        raise StoredDataError(document_id)
+    units = document.get("units")
+    level = document.get("level")
+    if units != "m/s" or level != "sfc":
+        raise StoredDataError(document_id)
+    return ModelWindMetadata(
+        model_id=model.model_id,
+        label=model.label,
+        cycle=document_datetime(document, "base_time", document_id),
+        lead_hours=positive_int(document, "lead_hours", document_id),
+        valid_at=document_datetime(document, "valid_at", document_id),
+        level=level,
+        components=components,
+        units=units,
+        encoded_width=positive_int(document, "raster_width", document_id),
+        encoded_height=positive_int(document, "raster_height", document_id),
+        header_rows=positive_int(document, "header_rows", document_id),
+        grid_width=positive_int(document, "grid_width", document_id),
+        grid_height=positive_int(document, "grid_height", document_id),
         image_url=image_url,
     )

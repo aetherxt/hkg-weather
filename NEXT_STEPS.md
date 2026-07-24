@@ -217,9 +217,11 @@ Add layers in increasing order of uncertainty:
 2. Numerical HKO gridded rainfall nowcast.
 3. Radar PNG overlay using its stored geographic bounds.
 4. Active tropical-cyclone GeoJSON tracks and 70% Potential Track Area polygons.
-5. Earth Weather rainfall rasters after verifying their internal encoding,
+5. Earth Weather rainfall rasters and the matching ECMWF surface `UV` wind
+   vector raster after verifying their internal encoding,
    projection, colour scale and bounds.
-6. Additional Earth Weather fields only after rainfall is proven.
+6. Additional Earth Weather fields only after rainfall and ECMWF wind are
+   proven.
 
 Every layer needs a source timestamp, valid time, legend, units and a visible
 unavailable state. Internal OCF and Earth Weather feeds must fail independently
@@ -262,7 +264,8 @@ observations:
 
 ## 12. Later options
 
-- Add other Earth Weather fields after rainfall is decoded and stable.
+- Add other Earth Weather fields after rainfall and ECMWF wind decoding are
+  stable.
 - Add forecast-verification summaries beyond the rolling three-day viewer.
 - Move large immutable images to object storage only if MongoDB or response
   limits become a measured problem.

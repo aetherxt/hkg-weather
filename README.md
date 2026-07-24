@@ -128,6 +128,8 @@ Map-data readers expose frame metadata separately from larger payloads:
 | `GET /api/weather/radar/image` | Native latest radar PNG |
 | `GET /api/weather/models/{modelId}/rainfall` | Latest model rainfall-frame metadata |
 | `GET /api/weather/models/{modelId}/rainfall/image` | Native latest encoded model PNG |
+| `GET /api/weather/models/{modelId}/wind` | Latest ECMWF surface-wind vector-frame metadata |
+| `GET /api/weather/models/{modelId}/wind/image` | Native latest ECMWF encoded `UV` PNG |
 
 Archive index requests require ISO-8601 `from` and `to` query values. The range
 must not exceed three days, and a response is limited to 512 stored documents.
@@ -145,6 +147,8 @@ routes.
 | `GET /api/weather/history/stations/{stationCode}/forecast?from=&to=` | Archived OCF station forecasts |
 | `GET /api/weather/history/models/{modelId}/rainfall?from=&to=` | Archived model rainfall-frame index |
 | `GET /api/weather/history/models/{modelId}/rainfall/{validAt}/image` | One immutable archived model PNG |
+| `GET /api/weather/history/models/{modelId}/wind?from=&to=` | Archived ECMWF wind-vector frame index |
+| `GET /api/weather/history/models/{modelId}/wind/{validAt}/image` | One immutable archived ECMWF `UV` PNG |
 
 Valid configured resources with no stored payload return `404`; unsupported
 identifiers, timestamps and ranges return `422`; invalid stored payloads and
@@ -176,7 +180,7 @@ slot-addressed deduplication, depending on the dataset.
 | `/api/cron/smart-lampposts` | One latest and archived document per configured device |
 | `/api/cron/ocf-station-forecasts` | One latest and 3-day archived OCF forecast per configured station |
 | `/api/cron/earth-weather-cycles` | Latest cycle metadata for each configured Earth Weather model |
-| `/api/cron/earth-weather-rainfall` | Nearest future surface-rainfall raster for each rainfall-capable Earth Weather model, latest plus 3-day archive |
+| `/api/cron/earth-weather-rainfall` | Nearest future surface-rainfall raster for each rainfall-capable model plus the matching ECMWF surface `UV` wind raster, latest plus 3-day archives |
 | `/api/cron/radar-128` | Latest 128 km radar PNG and geographic bounds, with one archive entry per 30-minute slot |
 | `/api/cron/tropical-cyclones` | Current official tropical-cyclone track and Potential Track Area KML per active cyclone, latest plus 3-day archives |
 | `/api/cron/ingest-all` | Manually run every configured ingestion source and return a per-job result; do not schedule this route as a cron job |
@@ -184,8 +188,9 @@ slot-addressed deduplication, depending on the dataset.
 The internal-feed routes use the same Bearer secret as the official-feed
 routes. OCF station data is stored under IDs such as
 `ocf_station_forecast:HKO`; Earth Weather cycle metadata is stored under IDs
-such as `earth_weather_model_cycle:ec`, and rainfall rasters use IDs such as
-`earth_weather_rainfall:ec`. A tropical-cyclone request is successful with an
+such as `earth_weather_model_cycle:ec`; rainfall rasters use IDs such as
+`earth_weather_rainfall:ec`, and the ECMWF vector raster uses
+`earth_weather_wind:ec`. A tropical-cyclone request is successful with an
 empty `datasets` array and `activeCyclones: 0` when HKO reports no active
 cyclone. Potential Track Area documents use IDs such as
 `tropical_cyclone_track_area:2617`; a missing or empty HKO cone is treated as
